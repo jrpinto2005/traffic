@@ -1,0 +1,15 @@
+# Minimal config: a fast sanity-check fixture, not a research run.
+#
+# T1.1's own schema covers only run identity, seeds (D-017), and run phases
+# (D-018, D-032) -- the scenario and demand schemas do not exist yet (T1.3,
+# T1.5). This file holds only those fields. Used as the acceptance fixture
+# by T1.1 and T1.13.
+
+name: smoke
+
+master_seed: 0
+
+warmup_s: 60.0
+measurement_s: 300.0
+cooldown_s: 60.0
+warmup_design: self
