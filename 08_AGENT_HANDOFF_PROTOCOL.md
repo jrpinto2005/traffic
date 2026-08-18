@@ -271,11 +271,39 @@ demands frequency makes the race *more* likely, not less.
 | Situation | Arrangement |
 | --- | --- |
 | One agent at a time | Work in the repository directly: default branch for spikes, `ticket/<id>-<slug>` for builders. |
-| **Two or more agents concurrently** | Each gets its own **git worktree** and its own branch. The architect merges each as it finishes. |
+| **Two or more agents concurrently** | Each gets its own **git worktree**, its own branch, and its own `uv sync` (~1 s, ~4 MB). The architect merges each as it finishes. |
 
-Worktree agents **share the project's virtualenv** rather than creating one: invoke
-`<repo>/.venv/bin/python` by absolute path instead of `uv run`. A worktree has no `.venv`, and
-syncing one costs a full SUMO download per agent.
+**Each worktree runs its own `uv sync`.** Do not share the main checkout's virtualenv.
+
+The reason is correctness, not tidiness. The project is installed in editable mode, and the
+editable hook is a `.pth` file containing the **absolute path of the main checkout**:
+
+```
+.venv/lib/python3.12/site-packages/_editable_impl_traffic_lab.pth
+  -> /Users/.../Personal/traffic
+```
+
+So `import traffic_lab` resolves to the **main repository** from every working directory,
+worktree included. Agents sharing that venv would each edit their own worktree and each run
+tests against the *same* main-checkout code — seeing neither their own changes nor a clean
+failure, just quietly wrong results, while overwriting each other. `PYTHONPATH=<worktree>` does
+shadow it correctly (verified), but it must be remembered on every invocation and forgetting it
+fails silently.
+
+An earlier version of this section claimed a per-worktree sync "costs a full SUMO download per
+agent". **That was wrong.** Measured on this machine with a warm `uv` cache:
+
+| | |
+| --- | --- |
+| `uv sync` in a fresh worktree | **0.83 s** |
+| Apparent venv size | 954 MB |
+| **Actual disk consumed** | **4 MB** — APFS copy-on-write clones from the uv cache |
+
+Under a second, four megabytes, and complete isolation. There is no trade-off here.
+
+```
+cd <worktree> && uv sync && .venv/bin/python -m pytest
+```
 
 Because parallel tickets write to disjoint files, these merges are mechanical. **If two
 concurrent agents would touch the same file, the tickets were split along the wrong line** —
