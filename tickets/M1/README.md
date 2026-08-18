@@ -30,8 +30,24 @@ T1.2 domain ───┼─→ T1.3 network ──→ T1.5 demand ─┐
                                       T1.11 runner ──┴──→ T1.12 analysis
 ```
 
-**Waves:** (1) T1.1 ∥ T1.2 · (2) T1.3 ∥ T1.4 ∥ T1.7 ∥ T1.9 · (3) T1.5 ∥ T1.6 ∥ T1.8 ∥ T1.13
-· (4) T1.10 ∥ T1.11 · (5) T1.12 · (6) Reviewer pass.
+**Waves, corrected 2026-08-18.** The original listing paired T1.1 with T1.2 in one wave. They
+are not parallel: T1.2 needs `traffic_lab/__init__.py` and a `pyproject.toml` carrying the build
+target before its tests can import anything, and both are T1.1's deliverables. Two concurrent
+agents would create the same two files, which by `08_AGENT_HANDOFF_PROTOCOL.md` §5.1 means the
+split was wrong rather than that the agents need coordinating.
+
+Since T1.3, T1.4, T1.7 and T1.9 all depend on T1.2, **there is no parallelism at all until T1.2
+lands**. The critical path is narrow and unavoidable:
+
+| Wave | Tickets | Concurrency |
+| --- | --- | --- |
+| 1 | T1.1 | single — no worktree needed |
+| 2 | T1.2 | single — no worktree needed |
+| 3 | T1.3 ∥ T1.4 ∥ T1.7 ∥ T1.9 | 4 worktrees |
+| 4 | T1.5 ∥ T1.6 ∥ T1.8 ∥ T1.13 | 4 worktrees |
+| 5 | T1.10 ∥ T1.11 | 2 worktrees |
+| 6 | T1.12 | single |
+| 7 | Reviewer pass | single |
 
 ## Before any ticket starts
 
