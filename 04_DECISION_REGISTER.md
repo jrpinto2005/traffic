@@ -944,7 +944,19 @@ handling:
 | Sinks | Boundary edges declared as sinks to `jtrrouter` |
 | Initial state | `--save-state` / `--load-state` (see `D-032`) |
 
-**Verify in the M0 spike:** that `jtrrouter`'s sink handling and turn-ratio semantics behave
+**Verified 2026-08-18 (T0.5, second pass).** Turn ratios are honoured — configured
+0.60 / 0.25 / 0.15 from one approach realised as 0.606 / 0.252 / 0.142 over 4000 generated
+routes — and declared sink edges terminate every route (0 of 4000 ended off-sink).
+
+**Correction binding on T1.5:** the `<fromEdge>` / `<toEdge>` turn-file format is **deprecated**
+in SUMO 1.27.1, which emits a warning pointing at `<edgeRelation from=... to=... probability=.../>`.
+Tutorials and older examples still show the legacy form.
+
+**Still unverified:** `--max-edges-factor`. Every route on a single intersection is two edges, so
+the memoryless-routing artifact described below cannot appear until a multi-junction network
+exists at M5.
+
+**Original spike instruction, now discharged:** that `jtrrouter`'s sink handling and turn-ratio semantics behave
 as assumed, and that `arrivalPos` removal is counted the way we expect in SUMO's trip output.
 
 #### Three consequences that must be handled, not discovered later

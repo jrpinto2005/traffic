@@ -59,7 +59,31 @@ is an open question, not settled here.
 
 ## 2. Demand semantics (`D-022`)
 
-### 2.1 `jtrrouter`
+### 2.1 `jtrrouter` — verified 2026-08-18
+
+The last documentation-only claim in this document, and T1.5 depends on it. Now measured
+(4000 routes on the M0_verify probe network, seed 42):
+
+| Claim | Result |
+| --- | --- |
+| Turn ratios per (junction, from-edge) are honoured | **Yes.** Configured 0.60 / 0.25 / 0.15 from `wc`; realised 0.606 / 0.252 / 0.142 |
+| Declared sink edges terminate routes | **Yes.** 0 of 4000 routes ended off-sink with `--sink-edges` |
+| `--max-edges-factor` bounds route length | **Not testable here.** All routes are 2 edges on a single intersection; the memoryless-routing artifact only appears on multi-junction networks, so this half stays unverified until M5. |
+
+**Correction for T1.5:** the `<fromEdge>` / `<toEdge>` turn-file format used in this test is
+**deprecated**. SUMO 1.27.1 emits:
+
+```
+Warning: The turn-file format with elements fromEdge, toEdge is deprecated,
+please use edgeRelation instead.
+```
+
+T1.5 must emit `<edgeRelation from=... to=... probability=.../>`, not the legacy elements.
+`D-022` is otherwise confirmed as written.
+
+---
+
+### 2.1b Original documentation-derived notes
 
 `jtrrouter` builds routes from:
 
