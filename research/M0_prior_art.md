@@ -132,3 +132,142 @@ matches `D-008`), `max_depart_delay = -1` (no discard), `waiting_time_memory = 1
 - Docstring/code disagreement on `max_green` (docstring says 60 and "currently ignored",
   signature says 50 and it is conditionally honoured) is a live bug in a results-affecting
   parameter.
+
+---
+
+## 2. RESCO (Pi-Star-Lab/RESCO)
+
+`spikes/M0_prior_art/RESCO` · GPL-3 · **the clone is v2.0**, the refactored codebase; the
+NeurIPS 2021 paper describes v1.0. Where the two differ I say so.
+
+### Purpose
+A **benchmark**: a fixed set of scenarios, a fixed set of state/reward/action options, and a
+standardised implementation of several RL algorithms plus three non-learning controllers, so
+that published numbers are comparable. This is the closest project in spirit to what our
+M1 is for.
+
+### Scenario format
+A SUMO `.net.xml` and `.rou.xml` **plus a hand-authored YAML block per intersection** in
+`resco_benchmark/config/signal.yaml`. Per signal:
+
+- `lane_sets`: a dict from one of twelve turn movements (`'S-W'`, `'S-S'`, `'S-E'`, `'W-N'`,
+  `'W-W'`, `'W-S'`, `'N-E'`, `'N-N'`, `'N-W'`, `'E-S'`, `'E-E'`, `'E-N'` — from-compass to
+  to-compass, no U-turns) to the list of incoming lane IDs serving it.
+- `downstream`: `{'N': <signal id or null>, 'E': …, 'S': …, 'W': …}` — the neighbour graph,
+  which is what makes downstream pressure computable.
+- `fixed_timings`: the fixed-time plan, **in units of decision steps, not seconds**.
+- `fixed_phase_order_idx`, optionally `fixed_offset`.
+
+Per map, a `phase_pairs` list of eight `[movement, movement]` pairs defines the action space.
+
+**This is the format's real cost.** Every new network requires hand-authoring the lane sets,
+the neighbour graph and the phase pairs. `Signal._find_neighbors` raises
+`Exception("Invalid signal config")` if they are inconsistent. Nothing derives them from the
+net file.
+
+Scenarios and their windows (`config.yaml`): `grid4x4` and `arterial4x4` 0–3600 s;
+`cologne1/3/8` 25200–28800 s (07:00–08:00); `ingolstadt1/7/21` 57600–61200 s (16:00–17:00);
+`saltlake2_*` a full year of recorded data, 0–86400 s per day. `flow` scales demand
+multiplicatively (`1.0` = original).
+
+### Action space
+Phase selection over the green phases discovered in the net file
+(`act_size = len(signal.green_phases)`), with the eight `phase_pairs` giving the semantic
+mapping. `action_set` may be `Phase` (default), `FixedCyclePlan` (keep / lengthen / shorten
+the current phase in a fixed cycle) or `FixedCycle` (binary keep / advance). The alternative
+action sets are in `mdp_options/actions.py`; `PhaseLength` is a `pass  # TODO`.
+
+Constraint handling (`traffic_signal.Signal`):
+
+| Constraint | RESCO behaviour |
+| --- | --- |
+| Min green | **None.** The 5 s decision interval is the only floor. |
+| Max green | **None.** |
+| Yellow | `cfg.yellow_length = 3` s, synthesised by `create_yellows()` for every ordered pair. |
+| All-red | `cfg.clearance_length = 2` s, applied **only when the outgoing phase contains a permissive `g`**. The comment says "use if SUMO gridlocks in high demand". |
+| Conflict legality | Implicit in the net file's phases. |
+| Outcome record | None. |
+
+Because yellow and all-red are consumed *inside* the 5 s decision interval, a controller that
+switches at every decision point can be left with **0–2 s of actual green per cycle**. See
+§0 item 1 — this needs verifying by running, but it follows directly from `Signal.step()`.
+
+### Baselines implemented
+Three, in `agents/static/`:
+
+- **FIXED** — cycles `fixed_timings` (per-signal, in decision steps) in a permuted phase
+  order, with an offset that is `# TODO only implemented for 2 signal maps with A3 and B3`.
+  For `grid4x4` and `arterial4x4` every signal is given the identical plan
+  `[4, 2, 4, 2, 4, 2, 4, 2]` = 20/10/20/10/20/10/20/10 s. **This is an equal-split plan, not
+  a Webster plan.** For Cologne/Ingolstadt the timings appear derived from the real programs.
+- **MAXWAVE** — `argmax` over `phase_pairs` of `wave[left] + wave[right]`, where
+  `wave = queued + approaching` per movement. This is greedy-queue, i.e. the paper's "Greedy".
+- **MAXPRESSURE** — a two-line subclass of `MAXWAVE` that runs the same `argmax` over the
+  `mplight` state with the leading `current_phase` element stripped. The `mplight` state is,
+  per movement: `sum(inbound lane.queued) - sum(downstream lane.queued)`. So RESCO's
+  Max-Pressure **is** per-movement, queue-based, downstream-subtracted pressure — the
+  textbook form — but with no saturation-flow weighting and no min green.
+
+No Webster. No actuated. No SUMO `type="actuated"` cross-check.
+
+### Metric definitions
+Two streams.
+
+**From SUMO tripinfo XML** (`utils/logs.py::parse_xml_log`), configured as
+`xml_metrics: ['timeLoss', 'duration', 'waitingTime']` and renamed for plots by
+`pretty_names.yaml`:
+
+| RESCO label | Source | Unit |
+| --- | --- | --- |
+| **"Average Delay" / "Delay (s)"** | tripinfo `timeLoss`, **plus tripinfo `departDelay`** (v2.0 only), summed over all trips and divided by the trip count | s/veh |
+| "Average Travel Time" | tripinfo `duration` | s/veh |
+| "Average Waiting Time" | tripinfo `waitingTime` | s/veh |
+
+The trip set includes unfinished and undeparted vehicles, because the command line carries
+`--tripinfo-output.write-unfinished True`, `--tripinfo-output.write-undeparted True` and
+`--eager-insert`. Vehicles whose ID starts with `ghost` (lane-closure props) are excluded.
+
+**From RESCO's own per-step CSV** (`csv_metrics: ['rewards','max_queues','queue_lengths','vehicles','phase_length']`):
+`queue_lengths` = `Observation.total_queued`, `max_queues` = per-signal max over lanes.
+
+**RESCO's queue is not SUMO's halting count and not ours.** In `Vehicle.observe`:
+
+```python
+if vehicle.speed < 0.1:
+    self.queued = True      # never reset
+if self.queued:
+    self.wait += cfg.step_ratio
+```
+
+A vehicle becomes `queued` the first time it drops below 0.1 m/s and **stays queued for as
+long as it remains within `cfg.max_distance = 200 m` of the junction**, moving or not. The
+same flag gates `wait`, so RESCO's waiting time is *time since first stop*, not time below a
+speed threshold. Both quantities are strictly larger than the SUMO-native equivalents.
+This queue is the input to MAXPRESSURE and MAXWAVE, so under `D-025`'s framing RESCO's
+Max-Pressure is **a different controller**, not just a differently-measured one.
+
+**RESCO's per-vehicle `delay` is dimensionless.** `Signal._inter_step_observe` subscribes to
+`VAR_TIMELOSS` and then overwrites it:
+
+```python
+vehicle[tc.VAR_TIMELOSS] = (vehicle[tc.VAR_SPEED] - vehicle[tc.VAR_ALLOWED_SPEED]) / vehicle[tc.VAR_ALLOWED_SPEED]
+```
+
+so `Vehicle.delay` accumulates a normalised speed deficit in `[-1, 0]` per observation step,
+not seconds. Only the `oracle_delay` reward uses the real `getTimeLoss`. The paper's
+footnote 3 confirms this is deliberate: signal-induced delay "can only be computed in
+hindsight", so the *reward* uses a real-time approximation. The *reported* delay is tripinfo
+`timeLoss`, which is a different quantity from the reward.
+
+### Run protocol
+- `episodes: 100`, `trials: 5` independent runs, no warm-up, no measurement window: metrics
+  cover the entire `start_time`→`end_time` span, and for `grid4x4`/`arterial4x4` that means
+  from an empty network.
+- SUMO command line: `--time-to-teleport -1` (**matches `D-008`**), `--no-warnings`,
+  `--no-step-log`, `--extrapolate-departpos True`, `--eager-insert`, and
+  `--random True` — **always**. `config.yaml` says `seed: null # Unused right now, TODO make
+  fully reproducible runs with seeding`. RESCO runs are therefore **not reproducible and not
+  seed-paired**, which rules out the common-random-numbers design `D-017` requires.
+- Validity: teleports are structurally impossible (good), but there is no insertion-failure
+  threshold and no gridlock detector. `init_ender` optionally aborts if any pending vehicle
+  has waited ≥ 1800 s.
