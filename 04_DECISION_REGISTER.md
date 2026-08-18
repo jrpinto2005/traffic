@@ -1,0 +1,1351 @@
+# Decision Register
+
+**Status:** Living document. Updated before the code that assumes a decision, never after.
+**Version:** 1.0
+**Governed by:** `02_PROJECT_CHARTER.md`
+
+---
+
+## 0. How to use this register
+
+This is the single source of truth for what has been decided. It exists to enforce
+`00_RESEARCH_SPECIFICATION.md` §48.14 — that no implementation shortcut silently
+invalidates the research methodology — by making the set of made decisions explicit and
+checkable.
+
+### 0.1 Status values
+
+| Status | Meaning | Who may act |
+| --- | --- | --- |
+| **SETTLED** | Decided. Implementation may rely on it. | Anyone |
+| **PROPOSED** | The architect's recommendation, awaiting owner ratification. | Nobody may build on it yet |
+| **OPEN** | Genuinely undecided. Requires a spike, research, or an owner call. | Nobody. Escalate. |
+| **DEFERRED** | Deliberately not now. Has a named revisit trigger. | Nobody |
+| **SUPERSEDED** | Replaced by a later decision. Kept for the record. | Nobody |
+
+### 0.2 The rule for implementation agents
+
+> If your ticket requires a decision that is **OPEN**, **PROPOSED**, or absent from this
+> register, **stop and escalate.** Do not choose. A guessed decision that happens to be
+> reasonable is still a methodology defect, because it is undocumented and therefore
+> un-revisitable.
+
+### 0.3 Revisit triggers
+
+Every non-trivial decision names the condition under which it should be reconsidered.
+A decision without a trigger is either genuinely permanent or under-thought. Triggers are
+checked at every milestone health check (`03_ROADMAP.md` §Health checks).
+
+---
+
+## 1. Index
+
+| ID | Topic | Status | Blocks |
+| --- | --- | --- | --- |
+| [D-001](#d-001) | SUMO as sole backend; benchmark deferred | SETTLED | M0 |
+| [D-002](#d-002) | Transport abstraction: TraCI then LibSUMO | SETTLED | M1 |
+| [D-003](#d-003) | Domain model is a projection, not a re-implementation | SETTLED | M1 |
+| [D-004](#d-004) | Technology stack | SETTLED | M1 |
+| [D-005](#d-005) | Computer vision out of core; extension point reserved | SETTLED | M3 |
+| [D-006](#d-006) | Primary delay metric = time loss | SETTLED | M1 |
+| [D-007](#d-007) | Queue definition — see D-025 | SUPERSEDED | — |
+| [D-008](#d-008) | Teleporting disabled; gridlock and insertion loss detected | SETTLED | M1 |
+| [D-009](#d-009) | Visualization is record-then-replay | SETTLED | M2 |
+| [D-010](#d-010) | `Junction` vs `SignalizedIntersection` | SETTLED | M1 |
+| [D-011](#d-011) | Two lane relations: `successor` and `adjacent` | SETTLED | M1 |
+| [D-012](#d-012) | Unidirectional edges; no bidirectional primitive | SETTLED | M1 |
+| [D-013](#d-013) | Mandatory baseline set | SETTLED | M1 |
+| [D-014](#d-014) | Repository layout | SETTLED | M1 |
+| [D-015](#d-015) | Five agent archetypes | SETTLED | M1 |
+| [D-016](#d-016) | Documentation language: English | SETTLED | — |
+| [D-017](#d-017) | Seed discipline, Monte Carlo replication, paired comparison | SETTLED | M1 |
+| [D-018](#d-018) | Warm-up, measurement window, unfinished trips | SETTLED | M1 |
+| [D-019](#d-019) | Deliverable is learning + portfolio | SETTLED | — |
+| [D-020](#d-020) | Action space, constraint layer, periodic decision interval | SETTLED | M1 |
+| [D-021](#d-021) | State estimation approach | OPEN | M3 |
+| [D-022](#d-022) | Demand, routing, sources, sinks, mid-link attrition | SETTLED | M1 |
+| [D-023](#d-023) | Conflict model and phase schema | SETTLED | M1 |
+| [D-024](#d-024) | Objective function | OPEN | M6 |
+| [D-025](#d-025) | Queue definition | SETTLED | M1 |
+| [D-026](#d-026) | Sublane model as default | DEFERRED | M4 |
+| [D-027](#d-027) | RL formulation | DEFERRED | M7 |
+| [D-028](#d-028) | Multi-intersection controller scope | DEFERRED | M5a |
+| [D-029](#d-029) | Pedestrian modelling | DEFERRED | — |
+| [D-030](#d-030) | Trace format | OPEN | M2 |
+| [D-031](#d-031) | Efficiency and reuse posture | SETTLED | M1 |
+| [D-032](#d-032) | Initial-state snapshots | SETTLED | M1 |
+
+**M1 is fully unblocked.** Every decision it depends on is SETTLED. The three remaining open
+decisions — `D-021` (state estimation), `D-024` (objective function), `D-030` (trace format) —
+block M3, M6, and M2 respectively, and none of them block the founding slice.
+
+---
+
+## 2. Settled and proposed decisions
+
+<a id="d-001"></a>
+### D-001 — SUMO is the sole simulation backend; the CityFlow benchmark is deferred
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` O-1, R-2
+
+**Decision.** SUMO is the only simulation backend. The multi-backend benchmark described in
+`00_RESEARCH_SPECIFICATION.md` §6.3 is not performed now.
+
+**Rationale.** The eleven-criterion benchmark in §6.3 is a multi-week engineering exercise
+that must complete before any research output exists, on a project whose principal risk is
+never reaching research output. It answers a question the project does not yet have.
+
+Note a correction to an earlier assessment: CityFlow is *not* abandoned — it is roughly 20×
+faster than SUMO and actively used in the large-scale RL literature. The argument for
+deferral is not that the alternative is dead. It is that (a) there is no measured bottleneck
+yet, (b) CityFlow abstracts away vehicle heterogeneity and detailed driver behaviour, which
+is exactly what the motorcycle work needs, so it is not a drop-in faster SUMO, and (c) if
+portability ever becomes the real goal, adopting LibSignal or PyTSC is likely cheaper than
+having maintained a bespoke abstraction for years.
+
+**Revisit trigger.** Wall-clock becomes a *measured* binding constraint on the experiment
+budget — most plausibly during M7 RL training or a large M5 seed sweep. At that point the
+first remedy is LibSUMO (`D-002`), then parallelism across processes, and only then a
+different simulator.
+
+---
+
+<a id="d-002"></a>
+### D-002 — The adapter abstracts its transport: TraCI first, LibSUMO when needed
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` O-1; M0 spike
+
+**Decision.** The backend adapter exposes one interface with two interchangeable transports.
+Development and interactive work use TraCI. Batch and training workloads switch to LibSUMO
+when wall-clock warrants it. The switch must be a configuration value, not a code change.
+
+**Rationale.** LibSUMO embeds SUMO in the client process instead of talking over a socket,
+and reported speedups are around 10× with identical method signatures. Because the
+signatures match, the abstraction is nearly free — but only if it exists from the start.
+Retrofitting it after controllers and experiments have hard-coded one transport is
+expensive.
+
+The constraints must be encoded in the abstraction, not discovered later: LibSUMO does not
+support multiple concurrent simulations in one process, and does not support the GUI. So
+parallel sweeps under LibSUMO require process-level parallelism, and any GUI use forces
+TraCI.
+
+**Revisit trigger.** M0 measures the actual speedup for this project's query pattern. If it
+is under ~2×, the abstraction is still kept (it costs almost nothing) but LibSUMO adoption
+drops in priority.
+
+---
+
+<a id="d-003"></a>
+### D-003 — The canonical domain model is a read-only projection plus a command surface
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` C-1, R-2
+
+**Decision.** The project-owned domain model does **not** re-implement traffic dynamics. It
+consists of:
+
+1. **A projection** — canonical, backend-independent types describing the network topology
+   and the true state at each step, populated from the backend.
+2. **A command surface** — the actions the project can apply to the backend, principally
+   signal control.
+3. **Configuration types** — including vehicle-dynamics parameters, which are passed
+   *through* to the backend and recorded for reproducibility, never interpreted by us.
+
+**The inclusion test.** An attribute enters the domain model only if you can name the
+controller, sensor, metric, estimator, or experiment that reads it. If you cannot, it stays
+in SUMO. This test is applied at code review and is not negotiable — it is the only thing
+preventing the abstraction tax described in R-2.
+
+**Rationale.** Resolves the specification's central contradiction (C-1). Preserves
+Principle 1 (backend independence) and Principle 9 (optionality) as a *boundary*, while
+refusing the cost of a parallel model maintained against a single backend.
+
+**Consequences.** `00_RESEARCH_SPECIFICATION.md` §§11–19 are reinterpreted as descriptions
+of *concepts the project reasons about*, not modules the project builds. Its §44 items
+"initial car-following model", "initial acceleration model", "initial braking model", and
+"initial stochasticity" become SUMO `vType` configuration choices, recorded in the run
+manifest.
+
+**Revisit trigger.** A second backend is actually adopted, or a research question requires
+modelling a phenomenon SUMO cannot express.
+
+---
+
+<a id="d-004"></a>
+### D-004 — Technology stack
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-10 · **Confirm in M0**
+
+| Concern | Choice | Rationale |
+| --- | --- | --- |
+| Language | Python 3.12+ | SUMO's ecosystem, TraCI, LibSUMO, and the entire TSC literature |
+| Dependency/env management | `uv` | Fast, lockfile-based, reproducible; single tool for envs and deps |
+| Configuration | Pydantic v2 models, YAML on disk | Validation at load; typed configs; schema is self-documenting |
+| Experiment results | Parquet files + DuckDB for queries | No server; columnar; handles large sweeps; queryable without loading |
+| Numerics | NumPy; Polars for results analysis | Polars over pandas for sweep-scale aggregation |
+| Plotting | Matplotlib + a project style module | See the note below; alternatives were considered and rejected |
+| Testing | pytest, with property-based tests for invariants | Invariant checking is load-bearing here |
+| Lint/format | Ruff | Single tool |
+| Type checking | mypy or pyright, strict on the domain package | The truth/observation separation depends on types being real |
+| Renderer | Decide at M2 | Depends on the trace format; premature now |
+
+**Note on the renderer.** Deliberately left open. The trace format (`D-030`) determines what
+the renderer must consume, and choosing a rendering technology before knowing that is
+backwards.
+
+**Note on plotting** (owner asked whether something better than Matplotlib exists).
+Matplotlib stays, and the reason is not inertia:
+
+| Considered | Verdict |
+| --- | --- |
+| **Matplotlib** | **Chosen.** The only option that produces deterministic, versionable, publication-quality static output with full control over error bars, confidence bands, and small-multiple layouts — which is most of what this project plots. |
+| Plotly / Bokeh | Rejected. Their advantage is interactivity in a browser. Our interactive need is *watching a simulation*, which the M2 renderer handles far better than a chart library would. Adds a dependency for a capability we get elsewhere. |
+| Seaborn | Not rejected, just not needed yet. It is a thin layer over Matplotlib, so adding it later costs nothing. Worth it if statistical-plot boilerplate becomes annoying. |
+| Plotnine (grammar of graphics) | Rejected for now. Genuinely more elegant for faceted comparisons, but it is a second mental model for the same output and the figures here are few and highly customised. |
+
+The real quality lever is not the library. It is a **single project style module** —
+`viz/style.py` — that fixes fonts, colours, figure sizes, and the house convention for
+showing uncertainty, so that every figure in the repository looks like it came from the same
+lab. Per `02_PROJECT_CHARTER.md` §2.1, figure quality is a portfolio deliverable, and
+consistency across figures reads as rigour far more than any individual chart does.
+
+**Revisit trigger.** A figure type appears that Matplotlib genuinely cannot express well; or
+M2's renderer choice makes a shared dependency attractive.
+
+---
+
+<a id="d-005"></a>
+### D-005 — Computer vision is outside the core; an extension point is reserved
+
+**Status:** SETTLED (owner decision) · **Source:** `01_CRITICAL_REVIEW.md` G-2
+
+**Decision.** The core platform models sensing **parametrically** — field of view, range,
+detection probability, position and speed noise, latency — with parameters calibrated where
+possible against published detector benchmarks. A real perception pipeline (rendering,
+detection, tracking) is an **optional later track** that never blocks the main line.
+
+**The reserved extension point is a real obligation, not a note.** The observation interface
+must be defined such that a detection stream derived from pixels can be substituted for the
+parametric one with **no change** to estimators, controllers, or experiments. Concretely:
+the observation type is a stream of detections with uncertainty, not a structure that
+assumes it was generated geometrically.
+
+**Rationale.** Rendering camera views from SUMO and running detection and multi-object
+tracking is comparable in size to the entire rest of the platform, and adds little to the
+research questions the parametric model already lets us ask. Owner selected "optional later
+track."
+
+**Revisit trigger.** M5 complete and the owner wants a second track. See
+`03_ROADMAP.md` §Optional parallel track.
+
+---
+
+<a id="d-006"></a>
+### D-006 — Primary delay metric is time loss
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-5
+
+**Decision.** The primary reported delay metric is **time loss**: realised travel time minus
+the travel time that would have been achieved at the desired speed over the same route.
+SUMO computes this natively as `timeLoss`.
+
+Secondary metrics, reported where relevant but never as the headline: stopped delay (time
+below a speed threshold) and, at intersection level, an approximation of HCM control delay.
+
+**Every reported delay figure must name its definition.** A number labelled only "delay" is
+a defect.
+
+**Rationale.** Time loss requires no geometric assumptions, is well-defined on networks and
+across routes, is computed natively (so it cannot drift from our own implementation), and
+captures acceleration and deceleration losses that stopped delay misses. The three
+definitions can differ by a factor of two on the same run, so pinning one is not a
+formality.
+
+**Revisit trigger.** Comparison against a published result that reports control delay
+specifically.
+
+---
+
+<a id="d-007"></a>
+### D-007 — *(superseded by D-025)*
+
+**Status:** SUPERSEDED. Queue definition consolidated into `D-025`, now SETTLED.
+
+---
+
+<a id="d-008"></a>
+### D-008 — Teleporting disabled; gridlock and insertion loss detected and reported
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-6, R-5
+**This is the highest-value decision in the register per unit of effort.**
+
+**Decision.** Every research run:
+
+1. Sets `--time-to-teleport -1`, disabling teleporting. The adapter **asserts** this at
+   startup and refuses to run otherwise.
+2. Counts vehicles that failed to insert. If the count exceeds a configured threshold, the
+   run is **marked invalid** — the applied demand no longer matches the configured demand,
+   so the experiment is measuring something other than what it claims.
+3. Detects gridlock explicitly (no vehicle has moved for N steps) and marks the run
+   gridlocked rather than reporting its metrics as valid.
+4. Records all three counters in the run manifest, always, even when zero.
+
+**Rationale.** SUMO teleports stuck vehicles by default after 300s. Under congestion — the
+regime where adaptive control is supposed to prove itself — this silently deletes the
+congestion being measured, and deletes *more* of it for worse controllers. A default-settings
+comparison can therefore show no difference between an excellent and a terrible controller,
+or invert their ranking, with no visible error. Blocked insertions have the same character:
+SUMO eventually discards them, quietly reducing applied demand.
+
+None of these appear anywhere in the original specification, including its open-questions
+list. They are the most likely mechanism by which this project produces confidently wrong
+results.
+
+**Revisit trigger.** None. This is permanent.
+
+---
+
+<a id="d-009"></a>
+### D-009 — Visualization is record-then-replay
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-12, O-5
+
+**Decision.** Simulations optionally write a **trace file**. The renderer is an independent
+consumer of trace files and has no dependency on, or coupling to, the simulator. There is no
+live rendering path.
+
+**Rationale.** Decouples renderer frame rate from simulator step rate; removes the need for
+a streaming transport; keeps batch mode renderer-free by construction rather than by
+discipline; and is strictly better for research, because you can scrub, pause, and re-watch
+the exact run that produced a surprising number. Also makes the renderer independently
+testable and independently shippable — it runs without SUMO installed.
+
+**What is given up:** interactive intervention during a run (a human changing signals
+mid-simulation). The specification does not ask for it.
+
+**Revisit trigger.** A demonstrable need for human-in-the-loop intervention.
+
+---
+
+<a id="d-010"></a>
+### D-010 — `Junction` and `SignalizedIntersection` are distinct concepts
+
+**Status:** SETTLED — expanded on owner request, ratified 2026-08-14
+**Source:** `01_CRITICAL_REVIEW.md` C-3
+
+#### The problem in one sentence
+
+`00_RESEARCH_SPECIFICATION.md` §8.1 says *"an intersection is a road-system unit containing
+at least two coordinated signal groups"*, which means that under our own definition, **a
+street corner with no traffic light is not an intersection** — so the system has no name for
+it, no type for it, and no way to reason about it.
+
+#### Why that is not a wording quibble
+
+Unsignalized junctions are not an edge case we might encounter later. They are structurally
+unavoidable and they carry real behaviour:
+
+**1. Every network we build has them, starting at M5c.** A 3×3 grid of signalized
+intersections has 9 controlled nodes and **12 boundary nodes** where traffic enters and
+leaves. Those boundary nodes are junctions. If the type system cannot represent them, the
+network generator cannot build the grid.
+
+**2. They determine the capacity of the signalized ones.** A signal can only discharge a
+queue as fast as the downstream link accepts vehicles. If the downstream link ends in an
+unsignalized merge that is itself saturated, the green time is wasted. That is the
+mechanism of spillback, and spillback is the headline phenomenon of M5. A model that cannot
+represent the uncontrolled node cannot represent the thing that causes the congestion.
+
+**3. Whether a node is signalized is an experimental variable.** A legitimate experiment is
+"what happens if we de-signalize this intersection and make it a roundabout or a
+priority junction?" Under §8.1's definition, that intersection would cease to exist when you
+turn its signals off. An entity should not be deleted from the model by changing an
+experimental parameter.
+
+**4. Metrics need to cover the whole network, control needs to cover part of it.** Total
+network delay includes delay accumulated at uncontrolled nodes. If "intersection" and
+"controlled intersection" are the same word, every metric aggregation has to silently decide
+which one it means, and different parts of the code will decide differently.
+
+#### The fix
+
+Split one word into two, along the line between *topology* (where roads meet) and *control*
+(where we act):
+
+| | `Junction` | `SignalizedIntersection` |
+| --- | --- | --- |
+| **What it is** | A node where lanes from more than one edge connect | A `Junction` that also has signals |
+| **Answers** | "How is the network shaped?" | "Where can the controller act?" |
+| **Carries** | Geometry, incoming/outgoing lanes, lane connections, conflict matrix, right-of-way rules | Everything a `Junction` has, **plus** signal groups, phases, and exactly one attached controller |
+| **Constraint** | None; may have any number of approaches | `\|SignalGroups\| >= 2` (this is where §8.1's rule belongs) |
+| **Consumed by** | Network generation, routing, metrics, spillback analysis | Controllers, the action interface, signal-timing metrics |
+| **Example** | Grid boundary node, priority merge, roundabout, four-way stop | The nine controlled nodes of a 3×3 grid |
+
+The relationship is **specialisation, not composition**: every `SignalizedIntersection`
+*is a* `Junction`. Signalizing a junction promotes it; de-signalizing demotes it. Nothing is
+created or destroyed.
+
+#### Consequences in code
+
+- A controller's scope is a set of `SignalizedIntersection`s. It is a type error to hand a
+  controller a plain `Junction`.
+- Routing, network metrics, and spillback analysis iterate over all `Junction`s.
+- The conflict matrix (`D-023`) lives on `Junction`, not on `SignalizedIntersection` —
+  because conflicts between movements are a fact of geometry that exists whether or not a
+  signal is present. Phases, which are *derived* from the conflict matrix, live on
+  `SignalizedIntersection`.
+- This maps cleanly onto SUMO, which makes the same distinction: every node is a junction
+  with a `type` attribute (`priority`, `right_before_left`, `traffic_light`, …), and only
+  the `traffic_light` ones carry a program.
+
+#### What the original definition got right, and is preserved
+
+§8.1's refusal to assume a four-way geometry is correct and stays: `Junction` has no fixed
+number of approaches, and geometry is data. The `|SignalGroups| >= 2` condition is also
+correct — it just belongs on the narrower type.
+
+**Revisit trigger.** None expected.
+
+---
+
+<a id="d-011"></a>
+### D-011 — Two lane relations, and `Movement` is a view
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` C-4, G-14
+
+**Decision.** The lane graph has exactly two relations:
+
+- **`successor`** — longitudinal and route-traversable. Includes continuation within an
+  edge and crossings through a junction.
+- **`adjacent`** — lateral, between parallel same-direction lanes. **Not** route-traversable.
+  Lane changing operates over this relation.
+
+`LaneConnection` is the single edge entity for `successor`. **`Movement` is a view, not a
+stored entity**: the subset of lane connections crossing a junction, grouped by (approach,
+turn direction), optionally annotated with a signal group.
+
+**Rationale.** Merging lateral adjacency into the routing graph means every routing,
+distance, and reachability computation must filter by edge type, and forgetting the filter
+produces plausible-but-wrong answers. Storing `Movement` separately from `LaneConnection`
+duplicates topology in two places that will drift.
+
+**Revisit trigger.** None expected.
+
+---
+
+<a id="d-012"></a>
+### D-012 — Edges are unidirectional; two-way streets are edge pairs
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-15
+
+**Decision.** Follow the SUMO and OpenStreetMap convention. A road edge has exactly one
+direction. A two-way street is a pair of opposing edges, optionally linked by a reference.
+No bidirectional primitive is introduced.
+
+**Rationale.** Inventing a bidirectional primitive creates translation problems at both the
+backend boundary and the future OSM-import boundary, for no benefit. Closes
+`00_RESEARCH_SPECIFICATION.md` §11's TBD with the standard answer.
+
+**Revisit trigger.** None expected.
+
+---
+
+<a id="d-013"></a>
+### D-013 — Mandatory baseline set
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-3
+
+**Decision.** No advanced controller result may be reported until it has been compared, on
+**identical seeds and identical demand realisations**, against all of:
+
+1. **Webster fixed-time** — cycle length and green splits computed by Webster's method for
+   the demand being tested. **Not** an arbitrary equal split.
+2. **Actuated (ours)** — gap-based extension with min/max green.
+3. **SUMO gap-actuated** — SUMO's own `type="actuated"` program, as an independent
+   cross-check on our implementation.
+4. **Max-Pressure.**
+
+From M5b onward, **coordinated fixed-time (green wave)** joins the mandatory set for
+corridor and grid networks.
+
+Optional but recommended, both available in RESCO: SOTL and Max-Wave.
+
+**Rationale.** Max-Pressure is the reference point in this literature: decentralized, needs
+only upstream and downstream queue counts, has proven stability guarantees, and routinely
+matches or beats deep RL. Published gaps of learned methods over Max-Pressure are on the
+order of 11–13%. A project showing RL beating a naive 30s/30s plan has demonstrated nothing.
+
+Webster matters for the opposite reason: a *badly tuned* baseline manufactures improvement
+out of nothing, and "30s NS / 30s EW" from `00_RESEARCH_SPECIFICATION.md` §26 is a badly
+tuned baseline.
+
+SUMO's actuated program is included because if our actuated controller diverges greatly from
+SUMO's, one of them has a bug, and without the cross-check we will not know which.
+
+**Revisit trigger.** A new baseline becomes standard in the literature.
+
+---
+
+<a id="d-014"></a>
+### D-014 — Repository layout
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` O-2
+
+**Decision.** Start with one installable package and a small subpackage set. Split only when
+a module actually grows. **No directory is created before code goes into it.**
+
+```text
+traffic_lab/              # the installable package
+  domain/                 # canonical types: network, state, action, observation
+  backend/                # SUMO adapter; transport abstraction (TraCI / LibSUMO)
+  scenarios/              # network + demand generation
+  sensing/                # sensor models and observation generation
+  estimation/             # state estimators
+  control/                # controllers (baselines and advanced)
+  metrics/                # metric definitions, validity checks
+  experiments/            # runner, sweeps, manifests
+  trace/                  # trace writing and reading
+configs/                  # YAML experiment configurations
+results/                  # parquet outputs (gitignored)
+research/                 # spike reports, per-milestone results documents
+tests/
+docs/                     # the numbered documents in this repository
+```
+
+**What was cut from `00_RESEARCH_SPECIFICATION.md` §42 and why:** `perception/` (deferred
+per `D-005`), `optimization/` (merged into `control/` — MPC is a controller), `evaluation/`
+vs `experiments/` vs `research/` (a three-way boundary nobody applies consistently; now
+`metrics/` for definitions, `experiments/` for execution, `research/` for prose),
+`visualization/` (a separate package at M2, decided then), `data/` (created when there is
+data).
+
+**Owner instruction attached to this ratification:** *"the code must be really flexible and
+must reuse as much code as possible, let's also emphasize efficiency. This is a complex
+project that needs to prioritize efficiency and scalability."* That instruction is about
+engineering posture rather than directory layout, and taken literally it conflicts with
+`02_PROJECT_CHARTER.md` §6 and Principle 8. It is therefore treated as its own decision and
+reframed in **`D-031`**, which is PROPOSED and needs the owner's reaction.
+
+**Revisit trigger.** A subpackage exceeds a size where its internal structure is unclear.
+
+---
+
+<a id="d-015"></a>
+### D-015 — Five agent archetypes
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` R-4
+
+**Decision.** Replace the fourteen subject-matter roles of `00_RESEARCH_SPECIFICATION.md`
+§43 with five archetypes distinguished by **the kind of contract they work under**:
+
+| Archetype | Works from | Delivers | Autonomy |
+| --- | --- | --- | --- |
+| **Spike** | A question and a time box | A written finding; throwaway code | High — exploration is the point |
+| **Builder** | A frozen interface + acceptance tests | An implementation passing those tests | Low — no design decisions |
+| **Experimenter** | A config and a hypothesis | Results, figures, a written interpretation | Medium — may choose analysis, not methodology |
+| **Reviewer** | A diff and the register | Findings, especially decision violations | N/A |
+| **Scribe** | A completed milestone | Updated documents, results write-up | Low |
+
+**Rationale.** Role taxonomy is not what makes delegation to weaker agents work. What makes
+it work is frozen interfaces, executable acceptance criteria, small closed scope, explicit
+per-ticket non-goals, and a named escalation path. Fourteen roles is more coordination
+surface than a single-owner project needs.
+
+The **Builder** archetype has deliberately low autonomy, and that is the crux: a Builder
+that encounters an undocumented judgement call must escalate rather than decide. See
+`08_AGENT_HANDOFF_PROTOCOL.md`.
+
+**Revisit trigger.** Team size grows beyond one human.
+
+---
+
+<a id="d-016"></a>
+### D-016 — Documentation is written in English
+
+**Status:** SETTLED
+
+**Decision.** All project documents, code identifiers, comments, and commit messages are in
+English. Conversation with the project owner is in Spanish.
+
+**Rationale.** Consistency with `00_RESEARCH_SPECIFICATION.md`, alignment with SUMO
+documentation and the literature, no translation layer between docs and identifiers, and
+portability of the portfolio artifact.
+
+**Revisit trigger.** The owner prefers otherwise — this is a preference, not a technical
+constraint, and reversing it early is cheap.
+
+---
+
+<a id="d-017"></a>
+### D-017 — Seed discipline, Monte Carlo replication, and paired comparison
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-4, R-5
+
+**Decision.**
+
+1. **Independent seed streams per source of randomness**: demand generation, driver
+   imperfection, sensor noise, estimator (if stochastic), controller (RL exploration).
+   Derived from one master seed by a documented scheme so that any single source can be
+   held fixed while others vary. Without this, ablations are uninterpretable.
+2. **Common random numbers across controller arms.** The same master seed must produce the
+   *same vehicle arrivals* regardless of which controller is running. Comparisons are
+   paired.
+3. **Paired statistics.** Report the per-seed difference between arms and its confidence
+   interval, not the difference of independent means. Paired comparison recovers most of
+   the statistical power that independent sampling throws away.
+4. **Seeds recorded in the manifest**, all of them, always.
+
+**Rationale.** Controller comparison on different demand realisations wastes most of the
+available power and can easily produce a "difference" that is entirely arrival noise.
+
+**On Monte Carlo** (owner: *"we can use Monte Carlo and different seeds for evaluations"*).
+Agreed, and this is exactly what the multi-seed design is — each seed is one Monte Carlo
+replication of the stochastic system, and the metric of interest is estimated from the
+sample across replications. Two refinements make it Monte Carlo done well rather than Monte
+Carlo done naively:
+
+1. **Common random numbers is a variance-reduction technique**, and it is the reason a
+   paired design beats an unpaired one. Comparing arms on *independent* replications means
+   the arrival noise appears in both samples and has to be averaged away; comparing them on
+   *the same* replications means the noise cancels in the per-seed difference. The same
+   conclusion typically needs several times fewer runs.
+2. **Replication count is derived, not chosen.** Rather than picking a round number like
+   100, the count comes from a target **minimum detectable effect**: decide the smallest
+   difference worth claiming (a defensible default is 5% relative delay), estimate the
+   per-seed standard deviation from a small pilot batch, and compute the replications needed
+   to detect it. This is reported alongside results, so a null finding can be read as
+   "no effect larger than X" rather than as an absence of evidence.
+
+Both are cheap and both are the kind of thing that distinguishes a research result from a
+plausible-looking chart.
+
+**Revisit trigger.** RL training makes exact arrival reproduction across arms impractical —
+in which case the deviation is documented per-experiment, not silently adopted.
+
+---
+
+<a id="d-018"></a>
+### D-018 — Warm-up, measurement window, and unfinished trips
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-4, G-6
+
+**Decision.** Every run has three explicit phases, all recorded in the manifest:
+
+| Phase | Purpose | Metrics |
+| --- | --- | --- |
+| **Warm-up** | Fill the network from empty to a representative state | Discarded entirely |
+| **Measurement** | The window results are computed over | Collected |
+| **Cool-down** | Let in-flight vehicles complete | Not collected; exists so trips finish |
+
+Rules:
+
+- Warm-up duration is a config parameter, justified per scenario (a sensible default is
+  several times the free-flow traversal time of the longest route), and **must be validated**
+  by showing that the metric of interest has stabilised.
+- **Unfinished trips are the dangerous case.** Vehicles still in-network at the end of
+  measurement have no completed travel time. Dropping them silently favours controllers that
+  let vehicles queue, because their slowest vehicles never finish and never count. The
+  policy: run a cool-down so most trips complete; count and report vehicles that still did
+  not; and report a trip-completion rate alongside every travel-time metric so the reader
+  can see whether the sample is biased.
+- Demand may not change during the measurement window unless the experiment's subject *is*
+  non-stationary demand, in which case the window covers whole cycles of the pattern.
+
+**Rationale.** The first minutes of a run start from an empty network and are biased low,
+and the bias varies with demand — which systematically distorts comparison across demand
+levels. The unfinished-trip issue is a well-known way to accidentally prove a bad controller
+is good.
+
+**Revisit trigger.** None. Permanent methodology.
+
+---
+
+<a id="d-019"></a>
+### D-019 — The deliverable is learning plus a portfolio artifact
+
+**Status:** SETTLED (owner decision) · **Source:** `02_PROJECT_CHARTER.md` §2
+
+**Decision.** Primary purpose is learning and a portfolio artifact, on an open-ended
+timeline, with a possible later pivot to a prototype that is explicitly not a current design
+constraint. Research posture is a broad platform without a single driving question.
+
+**Principal consequences** (worked out in the charter): visualization is promoted to a
+primary deliverable; methodological rigor stays at full strength; reimplementing existing
+tools is legitimate but only after reading them; negative results are deliverables;
+calibration against real Bogotá data is out of scope.
+
+**Principal risk accepted:** open-ended timeline plus no single question removes every
+natural forcing function. Mitigated by the vertical-slice rule
+(`02_PROJECT_CHARTER.md` §6) and the slice health check (`03_ROADMAP.md`).
+
+**Revisit trigger.** The owner decides to pursue a prototype, or wants to sharpen to a
+single research question. The standing recommendation on file is Q5 × Q4 — how motorcycle
+composition changes what a controller needs to observe.
+
+---
+
+## 3. Decisions closed for M1
+
+These four were the founding slice's blockers. All are now settled.
+
+<a id="d-020"></a>
+### D-020 — Action space, constraint layer, and periodic decision interval
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-7
+
+**Why it matters more than it looks.** The action space determines what every controller can
+express, what RL can learn, what MPC optimizes over, and whether results are comparable to
+published work. Two controllers with different action spaces cannot be compared cleanly,
+because part of the measured difference is the freedom they were given rather than the
+intelligence they applied.
+
+#### Decision 1 — Phase selection with a constraint layer
+
+A **single canonical action interface built on phase selection**: at each decision point a
+controller names the phase it wants next. Every controller acts through it, **including
+fixed-time**, which simply names the phase its schedule dictates. This is what makes a
+schedule and a learned policy genuinely comparable — they differ in how they choose, not in
+what they are allowed to choose.
+
+Considered and rejected as the canonical form: binary keep/switch (too constrained; cannot
+skip an empty phase, which is half the value of adaptive control), phase duration (awkward
+for RL), and cycle/split/offset (too slow-acting for M1, though it returns as the natural
+formulation for coordination at M5b).
+
+The **constraint layer** is the more important half. It sits between every controller and
+the backend, and enforces:
+
+- minimum green and maximum green per phase,
+- yellow and all-red transition timing,
+- phase-transition legality (per `D-023`'s conflict matrix),
+- eventually, pedestrian minimum-green floors (`D-029`).
+
+A controller *requests*; the constraint layer *grants, defers, or overrides*, and records
+which. That record matters: "the RL policy requested an illegal switch 400 times" is
+diagnostic information, not something to swallow silently.
+
+#### Decision 2 — Decision interval is periodic, not per-step
+
+**Owner instruction:** the controller decision interval is periodic; recomputing every
+simulation step is too expensive.
+
+Adopted, with a **two-tier structure** that is what makes it safe:
+
+| Tier | Runs | Cost | Responsibility |
+| --- | --- | --- | --- |
+| **Constraint layer** | Every simulation step | Negligible — it is timers and table lookups | Countdown of min/max green, execution of yellow and all-red, safety enforcement |
+| **Policy** | Every Δt (the decision interval) | Whatever the controller costs | Choosing the next phase |
+
+Separating them means the expensive part is throttled while safety and timing stay exact.
+If the policy ran only every 5 s *and* the constraint layer with it, a yellow interval could
+overrun by up to 5 s, which is a safety-model defect, not an approximation.
+
+**Δt is a per-controller configuration value with a global default**, because the right
+value genuinely differs by controller family:
+
+| Controller | Suggested Δt | Reason |
+| --- | --- | --- |
+| Fixed-time (Webster) | Irrelevant — schedule-driven | Acts at phase boundaries only |
+| Actuated | **1 s** | Gap-out detection is the mechanism; a coarse interval blunts it into a different algorithm |
+| Max-Pressure | 5 s | Pressure changes slowly; frequent switching is counterproductive |
+| MPC | 5–10 s | Each decision solves an optimization; this is where cost binds |
+| RL | 5 s | Also affects sample efficiency and episode length |
+
+**Constraints on Δt:** it must be an integer multiple of the SUMO step length, and it must
+be at least as fine as the minimum green, or the controller cannot express the shortest
+legal phase.
+
+#### The comparability caveat, and how it is handled
+
+Controllers running at different Δt are **not perfectly comparable** — part of any measured
+difference is decision frequency rather than decision quality. This is unavoidable (forcing
+actuated to 5 s would misrepresent actuated), so it is managed rather than hidden:
+
+1. Δt is recorded in the run manifest and **reported next to every result**.
+2. M1 includes a **Δt sensitivity check**: run Max-Pressure at 1 s, 5 s, and 10 s. If
+   performance is flat across that range, the caveat is empirically small and can be noted
+   and set aside. If it is steep, Δt becomes a controlled experimental variable and all
+   controllers are additionally compared at a common Δt.
+
+#### Known gap, surfaced while writing the T1.6 contract
+
+**Undecided: what happens when max green expires while a phase transition is in progress.**
+Does the override wait for the yellow/all-red sequence to complete, or does it preempt it?
+Preempting would violate invariant 3 of the T1.6 contract (every change is followed by a full
+yellow and all-red) and is almost certainly unsafe; waiting means max green can be exceeded by
+up to `yellow_s + all_red_s`, which must then be documented rather than treated as a bug.
+
+**Provisional answer, to be confirmed at implementation:** the override waits, and the
+resulting overshoot is recorded in the run manifest so it is visible rather than silent. A
+maximum green that is "maximum plus one transition" is a real property of the system and
+belongs in the results document.
+
+This is recorded rather than quietly resolved because it is exactly the class of decision
+that `08_AGENT_HANDOFF_PROTOCOL.md` §8 requires a Builder to escalate, and the architect is
+subject to the same rule.
+
+**Revisit trigger.** The Δt sensitivity check shows steep dependence; or a controller family
+at M6/M7 needs an action space this interface cannot express.
+
+---
+
+<a id="d-022"></a>
+### D-022 — Demand model: sources, propagation, mid-link attrition, sinks
+
+**Status:** SETTLED — owner-specified model, formalised by the architect 2026-08-13;
+arrivals, turn ratios and routing explicitly confirmed by owner 2026-08-18 with no changes
+**Source:** `01_CRITICAL_REVIEW.md` G-11; owner's model, 2026-08-13
+
+**Why it matters.** Demand design determines what an experiment can show. Whether demand is
+stationary or time-varying decides which controllers can win: a fixed-time plan tuned to the
+average is severely penalised by non-stationarity and barely penalised by stationarity. A
+project that only tests stationary demand systematically overrates fixed-time.
+
+Routing has a subtler consequence: if vehicles re-route around congestion, signal control and
+route choice interact, and a change in network performance can no longer be attributed to the
+controller.
+
+#### The model
+
+The owner specified an **open-boundary link–node flow model**. Vehicles are not conserved
+inside the study area: they enter from outside it, propagate through it, and leave it —
+sometimes at a boundary, sometimes in the middle of a link. Four mechanisms:
+
+| # | Mechanism | Meaning | Owner's phrasing |
+| --- | --- | --- | --- |
+| **1** | **Initial state** | The run begins from a populated network, not an empty one | *"Empezamos el modelo con una 'imagen' del tráfico actual"* |
+| **2** | **Exogenous sources** | Poisson arrivals from points outside the modelled network — boundaries, and also side streets, driveways and parking exits that we choose not to model | *"pueden entrar carros con distribución de Poisson de puntos no modelados"* |
+| **3** | **Endogenous propagation** | Traffic arriving at an intersection is mostly traffic that left the previous one, following a route toward a destination | *"a semáforos o intersecciones llegan los carros que antes estaban en la otra intersección"* |
+| **4** | **Attrition and sinks** | Vehicles leave either at an explicit exit point, or **mid-link**, having reached a destination between two signals | *"tasa de abandono… llegó a su destino entre semáforos o cámaras"* + *"puntos de salida de tráfico"* |
+
+This is a good model and it is more realistic than the one originally recommended. Mechanism
+4 in particular is something most traffic-signal-control studies omit: they conserve vehicles
+between boundaries, which overstates downstream demand on every arterial. Local destinations
+are a real and large fraction of urban traffic.
+
+#### Formalisation
+
+**Sources.** Two kinds, both Poisson with configurable rate, both seeded from the demand
+stream (`D-017`):
+
+- **Boundary sources** on edges entering the study area.
+- **Mid-link sources** at a specified position on an interior edge, representing unmodelled
+  side streets and driveways.
+
+Rates are expressed as a **fraction of the receiving approach's saturation flow**, not as
+absolute vehicles per hour, so that "demand level 0.8" means the same degree of loading
+across different geometries and is comparable across experiments.
+
+**Propagation and routing.** Routes are assigned by **turning ratios**, not by an OD matrix:
+at each junction, a vehicle's next edge is drawn from a configured probability distribution
+over the permitted movements. This matches mechanism 3 directly and is far simpler to
+configure for synthetic networks than an OD matrix would be.
+
+Routes are resolved **at insertion** and are then **fixed**. No re-routing, no congestion
+response. This is a deliberate limitation (see the caveat below), not an oversight.
+
+**Attrition.** Each interior edge carries an **attrition rate** — the fraction of its
+through-flow whose destination is on that edge rather than downstream. Applied at route
+construction: a vehicle drawn as "locally destined" gets a route terminating at a sampled
+position on that edge, and is removed on arrival.
+
+Attrition is **per-edge, not global.** An arterial link between two major intersections has
+low attrition; a commercial street lined with parking has high attrition. A single global
+rate would misrepresent both.
+
+**Sinks.** Boundary edges leaving the study area are explicit exit points. A vehicle
+reaching one has completed its trip.
+
+#### Mapping to SUMO
+
+Each mechanism maps to an existing SUMO facility, so none of this requires custom vehicle
+handling:
+
+| Mechanism | SUMO facility |
+| --- | --- |
+| Poisson arrivals | `<flow>` with exponentially distributed headways (`period="exp(rate)"`) |
+| Mid-link sources | `<flow>` with `departPos` set to an interior position |
+| Turning-ratio routing | `jtrrouter`, which builds routes from turn probabilities and supports declared sink edges — this is precisely the tool for this model |
+| Mid-link attrition | `arrivalPos` on the vehicle's final edge |
+| Sinks | Boundary edges declared as sinks to `jtrrouter` |
+| Initial state | `--save-state` / `--load-state` (see `D-032`) |
+
+**Verify in the M0 spike:** that `jtrrouter`'s sink handling and turn-ratio semantics behave
+as assumed, and that `arrivalPos` removal is counted the way we expect in SUMO's trip output.
+
+#### Three consequences that must be handled, not discovered later
+
+**1. Attrition changes what "throughput" means, and metrics must not conflate three
+different exits.** With this model a vehicle can leave the simulation in three ways, and
+they mean opposite things:
+
+| Exit | Meaning | Counts as |
+| --- | --- | --- |
+| Reached a boundary sink | Completed its trip through the network | **Served demand** |
+| Reached a mid-link destination | Completed its trip; arrived locally | **Served demand** |
+| Still in-network at end of measurement | Did not complete | **Unserved** — see `D-018` |
+
+Collapsing the first two with the third, in either direction, produces a false throughput
+figure. The metrics layer counts all three separately and always reports them, per `D-018`'s
+trip-completion-rate requirement.
+
+**2. Turning-ratio routing is memoryless, and that has an artifact.** Because the next
+movement is drawn independently at each junction, a vehicle can in principle circulate —
+turn right four times and return where it started. On a 3×3 grid with realistic turn ratios
+this is rare but nonzero. `jtrrouter` bounds it with a maximum-edges limit. The count of
+route generations that hit the limit is logged; if it is material, turn ratios are adjusted
+or a no-immediate-U-turn rule is added. This is exactly the kind of artifact that quietly
+inflates travel-time metrics if nobody looks for it.
+
+**3. Attrition creates a genuinely interesting problem for state estimation at M3.** The
+owner's own phrasing — *"llegó a su destino entre semáforos o cámaras"* — names it: a vehicle
+that leaves between two cameras is indistinguishable, from the sensors' point of view, from a
+vehicle the downstream camera simply failed to detect. A counting-based estimator (`D-021`)
+therefore cannot tell attrition from missed detection, and will drift.
+
+That is not a defect in the demand model. It is a realistic, structural source of estimation
+error that this model produces for free, and it makes M3's central question sharper: an
+estimator must either be given the attrition rate as prior knowledge, or infer it, or
+accumulate bias. Worth carrying forward explicitly into `D-021`.
+
+#### Scope by milestone
+
+| Milestone | Demand |
+| --- | --- |
+| **M1** | Stationary Poisson sources, fixed turn ratios, per-edge attrition, boundary sinks. Cars only — but the type-mix parameter exists in the config from day one so M4 needs no schema change. |
+| **M4** | Type mix activated (cars + motorcycles); attrition rates may differ by type. |
+| **M5** | Multiple sources and sinks; attrition becomes load-bearing as corridors lengthen. |
+| **M8** | Time-varying profiles and OD matrices. |
+
+**Standing caveat.** M1's conclusions hold under **stationary demand with fixed routes**, and
+are provisional by construction. Non-stationary demand (M8) is where fixed-time plans are
+properly penalised, so several M1 conclusions may invert there. The results document must say
+so rather than leaving the reader to discover it.
+
+**Revisit trigger.** Route choice becomes an experimental subject (deferred per
+`02_PROJECT_CHARTER.md` §7.3); or M8 requires OD matrices, at which point turning ratios and
+OD coexist as alternative demand backends behind the same config interface.
+
+---
+
+<a id="d-023"></a>
+### D-023 — Conflict model and phase schema
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-13
+
+**Why it matters.** `00_RESEARCH_SPECIFICATION.md` §10 defines a phase as a compatible set of
+movements, but **compatibility is the primitive** — phases are derived from it. Without an
+explicit conflict relation, the system cannot validate that a requested phase is safe, cannot
+enumerate the legal phase set for an arbitrary geometry, and cannot honour §8.1's requirement
+that geometry be data rather than hard-coded assumption.
+
+**Decision.**
+
+1. **The conflict matrix is the primitive.** For each `Junction` (per `D-010` it lives on the
+   topological type, because conflicts are a fact of geometry whether or not a signal is
+   present), a **three-valued matrix** over movement pairs:
+
+   | Value | Meaning |
+   | --- | --- |
+   | `compatible` | Both movements may run simultaneously with no interaction |
+   | `conflicting` | Both movements may never run simultaneously |
+   | `permitted` | Both may run simultaneously, but one yields to the other (e.g. a permitted left across opposing through traffic) |
+
+   Two values would have been simpler, but a permitted left is legal *and* conflicting, and
+   collapsing that distinction either forbids a movement real intersections allow or permits
+   one they do not. It also changes the capacity model, since a permitted movement discharges
+   at a reduced saturation flow.
+
+   The matrix is derived from geometry where possible — SUMO computes junction conflicts and
+   can seed it — and is overridable per scenario.
+
+2. **Phases are authored, then validated.** Phases are declared per scenario rather than
+   enumerated automatically from the matrix, because automatic enumeration produces a large
+   set of legal-but-nonsensical phases that no engineer would deploy and that would pollute
+   every controller's action space. **At load time, every declared phase is checked against
+   the conflict matrix and any phase containing a `conflicting` pair is rejected** with an
+   error naming the pair. Authoring gives control; validation prevents mistakes.
+
+3. **Transitions are attributes of a phase change, not phases.** Yellow and all-red durations
+   are properties of the transition from phase A to phase B, executed by the constraint layer
+   (`D-020`). They are deliberately **not** first-class phases: modelling them as phases would
+   put them in the action space, and no controller should ever be able to *choose* "yellow" —
+   it is a consequence of switching, not a decision.
+
+4. **Protected-only turns at M1.** The `permitted` value exists in the schema from the start
+   so that no migration is needed, but M1 scenarios use protected turns only. Permitted turns
+   are introduced when a scenario needs them, most likely at M5.
+
+**Revisit trigger.** A junction geometry appears that the three-valued matrix cannot express;
+or automatic phase enumeration becomes necessary for large imported networks at M8.
+
+---
+
+<a id="d-025"></a>
+### D-025 — Queue definition *(supersedes D-007)*
+
+**Status:** SETTLED — ratified by owner 2026-08-13 · **Source:** `01_CRITICAL_REVIEW.md` G-5
+
+**Why it matters.** Max-Pressure is defined in terms of queue counts, so the queue definition
+is not merely a metric — it is an *input to a controller*. Change the definition and you have
+changed the controller. It is also a headline metric, and it is what a sensor must estimate.
+
+`00_RESEARCH_SPECIFICATION.md` §19 correctly notes that instantaneous zero speed should not
+imply queued. That instinct now needs to become a testable rule.
+
+**Decision.** A vehicle is **queued** on a lane if it is *halting* — speed below
+**0.1 m/s** — and has been continuously halting for at least **1 second**.
+
+| Aspect | Decision | Reason |
+| --- | --- | --- |
+| **Speed threshold** | 0.1 m/s | Matches SUMO's own halting definition, so our counters and SUMO's native ones agree and can cross-check each other |
+| **Minimum duration** | 1 s continuous | Excludes vehicles that are merely decelerating through zero, which is the failure `00_RESEARCH_SPECIFICATION.md` §19 correctly warned about |
+| **Primary unit** | **Count** (vehicles) | Max-Pressure is defined over counts; counts are also what a camera can most reliably estimate, which keeps the controller's input and the sensor's output in the same unit |
+| **Secondary unit** | Length (metres), reported from M4 | Count and length diverge sharply under mixed vehicle types — five motorcycles occupy far less road than five cars — so this becomes a *motorcycle-relevant* metric, not bookkeeping |
+| **Distance to stop line** | **No condition at M1** | Deferred to M5, where spillback makes "which intersection does this queue belong to" a real question rather than a hypothetical one |
+| **Controller queue vs. metric queue** | **Same definition** | They may diverge later, but only deliberately and documented. Identical by default means a controller optimizing queues is optimizing the thing we report |
+
+**Spike required before implementation.** Confirm what SUMO's native halting counters
+(`getLastStepHaltingNumber` and the equivalent lane-area detector output) actually measure —
+specifically whether they apply the duration condition or only the speed threshold — before
+deciding to adopt them or compute our own. Folded into M0.
+
+**Revisit trigger.** M5 spillback requires stop-line attribution; or M4 shows that
+count-based queues misrepresent motorcycle-heavy approaches badly enough to change the
+primary unit.
+
+---
+
+## 4. Open and deferred decisions, later milestones
+
+<a id="d-021"></a>
+### D-021 — State estimation approach · **OPEN · blocks M3**
+
+Undecided: whether the first estimator is per-lane counting with decay, a recursive filter
+over queue dynamics (Kalman or particle), or a learned model.
+
+**Recommendation:** counting with decay at M3 (axis B, Step 1), deliberately chosen and
+documented as minimal rather than arrived at by default. Filtering at Step 2 only if M3
+shows that estimation error, rather than observation error, is what limits control.
+
+**Worth flagging:** this layer is where the platform's most distinctive work could live. Most
+of the literature either assumes perfect observation or fixes a detector model; explicitly
+separating estimation and measuring how control degrades through it is uncommon.
+
+**Carried forward from `D-022`.** The owner's demand model creates a structural estimation
+problem for free, and it should shape this decision. Because vehicles can leave mid-link
+(attrition), a counting estimator sees a vehicle enter a link upstream and never arrive
+downstream — and **cannot distinguish "it reached a local destination" from "the downstream
+camera missed it."** Both look identical in the observation stream. A naive counting
+estimator therefore accumulates bias at a rate set by the attrition rate.
+
+Three responses are possible, and choosing among them *is* this decision: give the estimator
+the attrition rate as prior knowledge, have it infer the rate online, or accept the bias and
+measure it. The third is a legitimate M3 baseline. This is a realistic problem that real
+camera-based systems have, and it is more interesting than the noise model.
+
+---
+
+<a id="d-024"></a>
+### D-024 — Objective function · **OPEN · blocks M6**
+
+> **Located here, not in §3**, because it blocks M6 (MPC) rather than M1. Nothing before M6
+> needs it: fixed-time follows a schedule, actuated follows a gap rule, and Max-Pressure has
+> its objective built into its definition. MPC is the first controller that must be *told*
+> what to optimize.
+
+**What the issue actually is.** `00_RESEARCH_SPECIFICATION.md` §27 proposes
+
+```
+J = w₁·Delay + w₂·Queue + w₃·TravelTime + w₄·Stops + w₅·ThroughputLoss + w₆·Fairness
+```
+
+and correctly calls objective design a research question. The problem is that this expression
+looks like a specification and is actually six unanswered questions wearing a formula. Three
+of them are substantive:
+
+**1. The weights are the policy, and there is no neutral choice.** Setting `w₁=w₂=1` is not
+"unbiased" — it is a specific and arbitrary trade-off between delay and queue length, and it
+determines the controller's behaviour more than the optimization algorithm does. Any weight
+vector encodes a value judgement about whose time matters. It has to be justified by an
+argument (a stated priority, a normalisation to comparable units, or a sensitivity analysis
+showing the conclusions are robust across a range), never by picking round numbers.
+
+**2. Several terms are not independent, so the sum double-counts.** Delay, travel time, and
+throughput loss are three views of largely the same physical quantity. Adding them with
+separate weights means an implicit and unexamined re-weighting of that quantity. Either the
+terms are made orthogonal, or the redundancy is acknowledged and the redundant terms dropped.
+
+**3. The optimization objective should probably not equal the evaluation metric.** If MPC
+minimises exactly the number we report, it will exploit whatever that metric fails to
+capture — the standard result of optimizing a proxy. Keeping them distinct is what allows
+the reported figure to remain an honest measurement rather than the controller's own
+scoreboard.
+
+**Also undecided:** whether fairness across approaches is included at all (it conflicts with
+aggregate efficiency — the efficient policy often starves a minor approach), and whether the
+objective is defined per-intersection or network-wide, which is really a coordination
+question and interacts with `D-028`.
+
+**Must be closed before M6, by argument rather than by choosing numbers.** Expect this to be
+its own small research exercise, most likely including a sensitivity sweep over weights.
+
+---
+
+<a id="d-026"></a>
+### D-026 — Sublane model as default · **DEFERRED to M4**
+
+SUMO's sublane model with SL2015 enables side-by-side occupancy and therefore motorcycle
+filtering and lane splitting, which is the substantive content of the project's motorcycle
+interest. The recommended lateral resolution is at most the width of the narrowest vehicle,
+so motorcycles force a fine resolution, which multiplies per-step lateral computation.
+
+**Decided at M4 by measurement:** wall-clock cost, and whether control conclusions change.
+Three outcomes are all acceptable — default on, optional experimental arm, or dropped — and
+"it does not change the conclusions, here is the evidence" is a legitimate finding under
+`00_RESEARCH_SPECIFICATION.md` §32.
+
+---
+
+<a id="d-027"></a>
+### D-027 — RL formulation · **DEFERRED to M7**
+
+State representation, action space (constrained by `D-020`), reward (related to but not
+necessarily identical to `D-024`), algorithm family, centralized vs. decentralized, training
+protocol, and the train/validation/test scenario split.
+
+**Two constraints fixed in advance:** RL is compared against Max-Pressure, not fixed-time
+(`D-013`); and per Principle 10, an RL controller that wins without an interpretable account
+of why and where it fails is not accepted.
+
+---
+
+<a id="d-028"></a>
+### D-028 — Multi-intersection controller scope · **DEFERRED to M5a**
+
+Whether a controller instance owns one intersection (with coordination as communication
+between instances) or one controller owns a set. This shapes the RL formulation, so it
+should be settled before M7 even though it first arises at M5a.
+
+---
+
+<a id="d-029"></a>
+### D-029 — Pedestrian modelling · **DEFERRED, no trigger date**
+
+Deferred entirely per `01_CRITICAL_REVIEW.md` O-4. Pedestrian phases impose hard floors on
+green duration, and that consequence is captured at near-zero cost by minimum-green
+constraints in the `D-020` constraint layer. Recorded as a stated limitation.
+
+**Revisit trigger:** an experiment requires pedestrian delay as an objective term.
+
+---
+
+<a id="d-030"></a>
+### D-030 — Trace format · **OPEN · blocks M2**
+
+Must specify: what is recorded per step, at what rate, in what container (JSONL, Parquet,
+or a binary format), how large a typical run's trace is, and how it is versioned.
+
+**Fixed requirement regardless of format:** channels for observations, estimated state, and
+controller decisions are specified at M2 even though they are only populated at M3. Adding
+them later would invalidate every earlier trace, and the research overlays are the entire
+justification for building a custom renderer (`01_CRITICAL_REVIEW.md` O-5).
+
+---
+
+## 5. Decisions arising from ratification
+
+<a id="d-031"></a>
+### D-031 — Efficiency and reuse posture
+
+**Status:** SETTLED — reframed by the architect, clarified and ratified by owner 2026-08-14
+**Source:** Owner instruction attached to `D-014`, 2026-08-13; owner clarification 2026-08-14
+
+**The instruction.** *"The code must be really flexible and must reuse as much code as
+possible, let's also emphasize efficiency. This is a complex project that needs to prioritize
+efficiency and scalability."*
+
+**The owner's clarification (2026-08-14).** *"When I say prioritize efficiency I mean code
+efficiency — looking for patterns that can make the code faster, and understanding which
+blocks of code may be making it slow."*
+
+This narrows the instruction substantially and removes most of the conflict identified below.
+The second half of the clarification — *understanding which blocks are making it slow* — is
+**profiling**, which is precisely what Principle 8 asks for rather than what it forbids.
+Principle 8 does not prohibit caring about speed; it prohibits optimizing before knowing
+where the time goes. The clarified instruction is therefore adopted, and turned into a
+standing measured practice in the third subsection below rather than left as an attitude.
+
+**Why it cannot be adopted as written.** Taken literally, each of the three clauses conflicts
+with something already ratified:
+
+| Clause | Conflicts with | How it fails in practice |
+| --- | --- | --- |
+| *"really flexible"* | `02_PROJECT_CHARTER.md` §6 — no speculative abstraction | Flexibility is bought with indirection. Indirection added before a second use case exists is pure cost, and it is the specific mechanism by which a research codebase becomes a framework that is harder to change than the code it replaced. |
+| *"reuse as much code as possible"* | Same | Maximising reuse produces generalised base classes with one subclass, parameters nobody varies, and coupling between things that only *looked* similar. Reuse is a consequence of good decomposition, not a target to maximise. |
+| *"prioritize efficiency"* | `00_RESEARCH_SPECIFICATION.md` Principle 8 — no optimization before bottlenecks are identified | Optimizing before measuring reliably targets the wrong thing and makes the code harder to change while doing it. **Largely resolved by the owner's clarification** — see above; what was meant was profiling, not speculative optimization. |
+
+**But the underlying concern is real and correct.** This project will run large sweeps —
+controllers × demand levels × seeds × network sizes — and later RL training. Throughput
+genuinely matters. The instruction is right that it cannot be an afterthought.
+
+**The resolution** is to split efficiency into three kinds, treated differently:
+
+#### Architectural efficiency — decide now, because retrofitting is expensive
+
+| Decision | Lever | Status |
+| --- | --- | --- |
+| **Transport abstraction for LibSUMO** | ~10× on the simulation call path | `D-002`, settled |
+| **Process-level parallelism as the runner's native shape** | Near-linear in cores. The single largest lever. | New, below |
+| **Batched/subscribed backend queries, never per-object polling** | Often several× on TraCI. The classic SUMO performance mistake. | New, below |
+| **Periodic decision interval** | Proportional to Δt on controller cost | `D-020`, settled |
+| **Columnar results storage; no per-step Python object churn in the hot loop** | Large at sweep scale | `D-004`, settled |
+| **Traces opt-in, off by default** | Removes I/O from batch runs entirely | `D-009`, settled |
+| **Snapshot initialisation instead of re-running warm-up** | Removes warm-up from every run after the first | `D-032`, below |
+
+Two of these are new and are hereby decided:
+
+**Parallelism.** The experiment runner is designed around *N independent runs*, not around
+one run with the ability to loop. Every run is a self-contained unit: its own config, its own
+seeds, its own process, its own output file, no shared mutable state. This is the largest
+available speedup, it is nearly free if designed in from the start and awkward to retrofit,
+and it composes with LibSUMO's constraint that one process holds one simulation rather than
+fighting it.
+
+*Illustrative budget arithmetic, to show why this is the lever that matters:* a full M5 sweep
+of 5 controllers × 6 demand levels × 50 seeds × 6 network sizes is ~9,000 runs. At a
+plausible ~36 s each, that is ~90 hours serially, ~11 hours across 8 cores, ~2 hours with
+LibSUMO on top. No amount of micro-optimization in the metrics code reaches that.
+
+**Query batching.** The dominant cost in TraCI is round-trips, not computation. Per-step
+per-vehicle polling is the standard way to make a SUMO project ten times slower than it needs
+to be. The adapter therefore uses **variable subscriptions and batched context queries** as
+its only state-reading mechanism, and per-object polling in the step loop is a review defect,
+not a style preference. This is an architectural constraint on the adapter, not an
+optimization.
+
+#### Code-level efficiency — a standing measured practice
+
+This is what the owner's clarification asked for, and it is adopted as **infrastructure
+rather than attitude.** The distinction matters: "write fast code" is advice that every
+developer already agrees with and that changes nothing. What changes something is having a
+committed tool that says where the time actually went.
+
+Four obligations, starting at M1:
+
+1. **A profiling harness lives in the repository.** A single command runs a standard
+   scenario under a profiler and emits a hot-path report. It is committed code that anyone
+   can run, not something reconstructed each time someone gets curious.
+2. **Every milestone's results document includes a hot-path report** — where the time went,
+   and what changed since the previous milestone.
+3. **A performance baseline with a regression guard.** M0 establishes wall-clock per
+   simulated hour. Each milestone records its own. A milestone that makes it materially
+   worse must either explain why (a genuinely more expensive controller is a fine reason) or
+   fix it. Silent 3× slowdowns accumulated across five milestones are how a project becomes
+   untrainable without anyone deciding it should.
+4. **An optimization without a before/after number is not accepted.** This is the rule that
+   keeps the practice honest. Unmeasured optimization reliably produces code that is harder
+   to read and no faster, and it is indistinguishable from measured optimization in a diff.
+
+**Where the time actually goes in a SUMO-based traffic-signal-control project.** Listed so
+the practice starts informed rather than blind — but every one of these is still confirmed by
+the profiler before anything is changed:
+
+| Hot path | Typical remedy |
+| --- | --- |
+| Backend round-trips per step | Variable and context subscriptions — already an architectural constraint above, and usually the dominant cost by a wide margin |
+| Per-vehicle Python object allocation inside the step loop | Reuse buffers; slotted dataclasses; avoid constructing a dict per vehicle per step |
+| Metric computation done per-vehicle in Python | Accumulate into arrays during the run; compute with NumPy at window close |
+| Result or trace I/O inside the step loop | Buffer and flush; traces off by default (`D-009`) |
+| Repeated lookups by string ID | Resolve IDs to integer indices once at network load |
+| Controller policy cost | Decision-interval throttling (`D-020`) |
+
+**What remains deferred.** Anything the profiler has not named. Principle 8 stands: the
+practice above is how a bottleneck gets *identified*, and identification is the precondition
+for optimizing, not a substitute for it.
+
+#### On "flexible" and "reuse", reframed
+
+**Flexibility is bought only at named seams.** The charter already names them: the backend
+adapter (`D-002`), the observation interface (`D-005`), and the controller/action interface
+(`D-020`). These three are where a second implementation is genuinely expected, so
+indirection there is insurance. Everywhere else the charter's rule holds — no interface for a
+second implementation that does not exist, and a third seam requires a register entry.
+
+**Reuse is measured in concepts, not lines.** The goal is a *small orthogonal core*: exactly
+one action interface, one metric-definition module, one config system, one experiment runner,
+one trace format. Reuse follows from there being one of each thing rather than from shared
+base classes. A codebase where every controller implements the same small interface is
+maximally reusable and has no inheritance in it at all.
+
+**Anti-patterns that are review defects in this project:**
+
+- A base class with one subclass.
+- A plugin or registry system before there are three implementations to register.
+- A configuration option that no config file sets.
+- A `Manager`, `Handler`, `Engine`, or `Factory` layer that only forwards calls.
+- Caching added before a profile showed the recomputation mattered.
+- A generic utility written for a single caller.
+
+**Revisit trigger.** The M0 baseline or an M5 sweep shows wall-clock binding despite the
+architectural levers above — at which point profiling identifies the target and Principle 8's
+precondition is satisfied.
+
+---
+
+<a id="d-032"></a>
+### D-032 — Runs may begin from a saved initial state
+
+**Status:** SETTLED — owner-specified (`D-022` mechanism 1), formalised by the architect
+**Source:** Owner's demand model, 2026-08-13
+
+**Decision.** A run begins either from an empty network or from a **saved simulation state
+snapshot** — the owner's *"imagen del tráfico actual"*. SUMO supports this natively through
+`--save-state` and `--load-state`.
+
+**How this unifies with `D-018`'s warm-up.** They are not competing mechanisms; they are the
+production and consumption sides of the same thing:
+
+> Warm-up from empty is **how a snapshot is produced**. A snapshot is **how warm-up is
+> avoided** on every subsequent run.
+
+So the workflow is: warm up once per (network, demand level, seed), save the state, and have
+every later run load it. This removes warm-up wall-clock from the overwhelming majority of
+runs in a sweep — a real efficiency lever, hence its appearance in `D-031`.
+
+**The subtlety that must not be missed: whose controller warms up?** A snapshot produced
+while controller X was running is a state that X induced, and starting every arm from it is
+not neutral. There are two defensible designs and they answer *different questions*:
+
+| Design | Procedure | Question it answers | Use for |
+| --- | --- | --- | --- |
+| **Self warm-up** *(default)* | Each arm warms up under its own controller, then measures | "What steady state does each controller induce, and how does it perform there?" | Steady-state comparison — the standard M1–M5 experiment |
+| **Neutral snapshot** | All arms load one snapshot generated under Webster fixed-time | "Given this identical starting state, which controller recovers best?" | Transient response, demand shocks, incident recovery |
+
+**Rule.** Whichever design an experiment uses, it is the **same across all arms** of that
+experiment and is **recorded in the run manifest**. Mixing them within one comparison
+invalidates it. Self warm-up is the default because equilibrium performance is what M1–M5
+ask about; neutral snapshots become the natural design for shock experiments.
+
+**Forward link to M6.** MPC needs to initialise its internal prediction model from an
+*estimated* current state at every decision point. That is the same facility as this one,
+pointed at an estimate rather than a saved file. Building snapshot loading now means M6
+inherits it rather than inventing it.
+
+**Caveat.** SUMO state files are sensitive to the SUMO version and to network changes. The
+run manifest already records the SUMO version (`D-008`); snapshots additionally record a hash
+of the network they were generated on, and loading a snapshot against a different network is
+a hard error rather than undefined behaviour.
+
+**Revisit trigger.** None expected.
+
+---
+
+## 6. Change log
+
+| Version | Change |
+| --- | --- |
+| 1.0 | Initial register. `D-005`, `D-016`, `D-019` settled from owner decisions; `D-001`–`D-018` proposed by the architect pending ratification; `D-020`–`D-030` open or deferred. |
+| 1.3 | **D-022 confirmed, 2026-08-18.** Owner confirmed the arrivals model, turn-ratio routing, and routing policy as formalised; no changes required. This unblocked `05_DOMAIN_MODEL.md`. Documents `05`, `06`, `07`, `08` written. `09_GLOSSARY.md` dropped — the canonical ↔ SUMO mapping lives in `05_DOMAIN_MODEL.md` §7, and a separate glossary would be a second place to drift. |
+| 1.2 | **Second ratification pass, 2026-08-14.** `D-010` ratified after expansion. `D-031` ratified after the owner clarified that "efficiency" meant code efficiency and profiling; the entry was restructured from two categories to three, adding **code-level efficiency as a standing measured practice** (profiling harness, per-milestone hot-path report, performance regression guard, and the rule that an optimization without a before/after number is not accepted). **M1 is now fully unblocked.** |
+| 1.1 | **Owner ratification pass, 2026-08-13.** `D-001`–`D-004`, `D-006`, `D-008`, `D-009`, `D-011`–`D-015`, `D-017`, `D-018` ratified and moved to SETTLED. All four M1 blockers closed: `D-020` (phase selection + constraint layer + periodic decision interval, per owner instruction), `D-022` (owner-specified source/propagation/attrition/sink model, formalised), `D-023` (three-valued conflict matrix, authored-then-validated phases), `D-025` (halting queue definition). `D-010` expanded on owner request and held at PROPOSED. Two new entries: `D-031` (efficiency and reuse posture — architect's reframing of an owner instruction, PROPOSED) and `D-032` (initial-state snapshots, derived from the owner's demand model). `D-004` extended with a plotting-library comparison; `D-017` extended with Monte Carlo replication guidance; `D-021` extended with the attrition/estimation-bias problem arising from `D-022`; `D-024` expanded to state the issue concretely. |
