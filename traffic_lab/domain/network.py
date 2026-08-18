@@ -204,3 +204,57 @@ class Network:
     connections: tuple[LaneConnection, ...]
     junctions: tuple[Junction, ...]
     signalized_intersections: tuple[SignalizedIntersection, ...]
+
+
+def movements_of(
+    network: Network,
+    junction_id: JunctionId,
+    *,
+    start_id: MovementId = MovementId(0),
+) -> tuple[Movement, ...]:
+    """Compute the `Movement` view of one junction from its lane connections.
+
+    Per D-011, a movement is the subset of lane connections crossing a junction,
+    grouped by (approach edge, turn direction) -- never stored. `signal_group` is
+    always `None` here: this function only sees topology (`network.lanes` and
+    `network.connections`), not any scenario's authored `SignalGroup`s. A caller
+    that also has those (T1.3's network generator, or `validate_network()`'s
+    invariant-8 check) annotates them separately.
+
+    `start_id` numbers the returned movements sequentially from this value. It
+    is local to one junction; giving every junction in a network globally unique
+    `MovementId`s (by offsetting `start_id` per junction) is the caller's job --
+    T1.2 has no concept of a whole-network movement id space.
+    """
+    junctions_by_id = {j.id: j for j in network.junctions}
+    junction = junctions_by_id[junction_id]
+    lanes_by_id = {lane.id: lane for lane in network.lanes}
+    connections_by_id = {conn.id: conn for conn in network.connections}
+
+    order: list[tuple[EdgeId, TurnDirection]] = []
+    grouped: dict[tuple[EdgeId, TurnDirection], list[LaneConnectionId]] = {}
+    to_edge_of: dict[tuple[EdgeId, TurnDirection], EdgeId] = {}
+
+    for conn_id in junction.connections:
+        conn = connections_by_id[conn_id]
+        from_lane = lanes_by_id[conn.from_lane]
+        to_lane = lanes_by_id[conn.to_lane]
+        key = (from_lane.edge, conn.turn)
+        if key not in grouped:
+            grouped[key] = []
+            to_edge_of[key] = to_lane.edge
+            order.append(key)
+        grouped[key].append(conn_id)
+
+    return tuple(
+        Movement(
+            id=MovementId(int(start_id) + offset),
+            junction=junction_id,
+            from_edge=key[0],
+            to_edge=to_edge_of[key],
+            turn=key[1],
+            connections=tuple(grouped[key]),
+            signal_group=None,
+        )
+        for offset, key in enumerate(order)
+    )
