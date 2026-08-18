@@ -1,0 +1,24 @@
+<routes>
+    <vType id="passenger" vClass="passenger" accel="2.6" decel="4.5" sigma="0.5" length="5.0" minGap="2.5" maxSpeed="13.89"/>
+
+    <route id="n_s" edges="n_in s_out"/>
+    <route id="n_w" edges="n_in w_out"/>
+    <route id="s_n" edges="s_in n_out"/>
+    <route id="s_e" edges="s_in e_out"/>
+    <route id="e_w" edges="e_in w_out"/>
+    <route id="e_n" edges="e_in n_out"/>
+    <route id="w_e" edges="w_in e_out"/>
+    <route id="w_s" edges="w_in s_out"/>
+
+    <flow id="n_straight" type="passenger" route="n_s" begin="0" end="3600" vehsPerHour="300" departLane="0" departSpeed="max"/>
+    <flow id="n_left" type="passenger" route="n_w" begin="0" end="3600" vehsPerHour="300" departLane="1" departSpeed="max"/>
+
+    <flow id="s_straight" type="passenger" route="s_n" begin="0" end="3600" vehsPerHour="300" departLane="0" departSpeed="max"/>
+    <flow id="s_left" type="passenger" route="s_e" begin="0" end="3600" vehsPerHour="300" departLane="1" departSpeed="max"/>
+
+    <flow id="e_straight" type="passenger" route="e_w" begin="0" end="3600" vehsPerHour="300" departLane="0" departSpeed="max"/>
+    <flow id="e_left" type="passenger" route="e_n" begin="0" end="3600" vehsPerHour="300" departLane="1" departSpeed="max"/>
+
+    <flow id="w_straight" type="passenger" route="w_e" begin="0" end="3600" vehsPerHour="300" departLane="0" departSpeed="max"/>
+    <flow id="w_left" type="passenger" route="w_s" begin="0" end="3600" vehsPerHour="300" departLane="1" departSpeed="max"/>
+</routes>
