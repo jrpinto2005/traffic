@@ -200,24 +200,35 @@ Constraints that the abstraction must encode rather than leave to be discovered:
 - **LibSUMO has no GUI.** Any GUI use forces TraCI. Since visualization is record-then-replay
   (`D-009`), this only affects debugging.
 
-### 5.2 Reads are subscriptions, never polling
+### 5.2 One batched projection per step, and no per-object access outside the adapter
 
-Per `D-031`, this is an **architectural constraint, not an optimization**. The dominant cost
-in TraCI is round-trips. Per-object polling inside the step loop is the standard way to make
-a SUMO project an order of magnitude slower than it needs to be, and it is also the hardest
-thing to retrofit, because by then every layer expects to be able to ask for anything at any
-time.
+Per `D-031` (amended 2026-08-18), this is an **architectural constraint, not an optimization**.
+The adapter:
 
-The adapter therefore:
-
-- registers variable and context subscriptions once at run start,
-- fetches all subscribed data in one call per step,
-- projects that data into `TrueState`,
+- fetches all state for a step in **one batched operation**,
+- projects it into `TrueState`,
 - and exposes **no** per-object query method to the rest of the system.
 
-If a layer needs a quantity, it is added to the subscription set at construction, not fetched
-on demand. Per-object polling in the step loop is a review defect
-(`08_AGENT_HANDOFF_PROTOCOL.md` §6 item 9).
+If a layer needs a quantity, it is added to the projection at construction, not fetched on
+demand. Per-object access reaching sensors, metrics or controllers is a review defect
+(`08_AGENT_HANDOFF_PROTOCOL.md` §6 item 9) — not because it is slow everywhere, but because
+once other layers can ask for anything at any time, the property is unrecoverable.
+
+**How the batching is done is transport-specific, and was measured rather than assumed.**
+
+| Transport | Mechanism | Measured, per simulated hour |
+| --- | --- | --- |
+| TraCI | Variable and context subscriptions registered once at `start()` | 7.30 s vs 71.05 s polling — **~10× faster** |
+| LibSUMO | Direct batched getters | 1.49 s vs 2.57 s subscribed — **~1.7× faster than subscribing** |
+
+An earlier version of this section mandated subscriptions for both. That was wrong for LibSUMO,
+which has no socket and therefore gains nothing from subscription bookkeeping while paying for
+it — and LibSUMO is the transport intended for every heavy workload. The mechanism sits behind
+the `D-002` seam; T1.4's byte-identical-`TrueState`-across-transports test is what keeps the two
+implementations honest.
+
+Context subscriptions remain the right tool for M3's radius-limited sensor queries. That is a
+different question from per-step whole-state projection.
 
 ### 5.3 Projection, not re-implementation
 

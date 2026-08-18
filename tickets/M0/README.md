@@ -24,6 +24,21 @@ T0.0  Environment            ← BLOCKS EVERYTHING
 
 T0.1 and T0.2 run in parallel. T0.3, T0.4 and T0.5 run in parallel after T0.2.
 
+## Status, 2026-08-18
+
+| Ticket | State |
+| --- | --- |
+| T0.0 environment | ✅ complete — SUMO from PyPI, not Homebrew |
+| T0.1 prior art | ✅ complete — build all five components |
+| T0.2 reference scenario | ⚠️ complete **after correction** — the D-023 seeding mechanism was wrong and untested |
+| T0.3 performance | ⚠️ complete **after correction** — found a D-031 contradiction and resolved it instead of escalating |
+| T0.4 footguns | ⚠️ complete **after correction** — teleport distortion was measured in an invalid regime |
+| T0.5 SUMO semantics | ⚠️ complete **after correction** — answered from documentation where the ticket demanded experiment; the jam-length claim was wrong |
+
+Corrections and their evidence are in `spikes/M0_verify/` and folded into each
+`research/M0_*.md`. One documentation-only claim survives unverified and T1.5 depends on it:
+`jtrrouter`'s sink and `--max-edges-factor` behaviour.
+
 ## Exit
 
 M0 is complete when `03_ROADMAP.md` M0's exit criteria are all checked, and when `D-002`,
