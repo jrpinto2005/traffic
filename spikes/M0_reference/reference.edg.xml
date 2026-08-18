@@ -1,0 +1,13 @@
+<edges>
+    <edge id="n_in" from="n" to="j1" numLanes="2" speed="13.89"/>
+    <edge id="n_out" from="j1" to="n" numLanes="2" speed="13.89"/>
+
+    <edge id="s_in" from="s" to="j1" numLanes="2" speed="13.89"/>
+    <edge id="s_out" from="j1" to="s" numLanes="2" speed="13.89"/>
+
+    <edge id="e_in" from="e" to="j1" numLanes="2" speed="13.89"/>
+    <edge id="e_out" from="j1" to="e" numLanes="2" speed="13.89"/>
+
+    <edge id="w_in" from="w" to="j1" numLanes="2" speed="13.89"/>
+    <edge id="w_out" from="j1" to="w" numLanes="2" speed="13.89"/>
+</edges>

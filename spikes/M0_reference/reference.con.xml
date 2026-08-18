@@ -1,0 +1,13 @@
+<connections>
+    <connection from="n_in" to="s_out" fromLane="0" toLane="0" tl="j1" linkIndex="0"/>
+    <connection from="n_in" to="w_out" fromLane="1" toLane="1" tl="j1" linkIndex="1"/>
+
+    <connection from="s_in" to="n_out" fromLane="0" toLane="0" tl="j1" linkIndex="2"/>
+    <connection from="s_in" to="e_out" fromLane="1" toLane="1" tl="j1" linkIndex="3"/>
+
+    <connection from="e_in" to="w_out" fromLane="0" toLane="0" tl="j1" linkIndex="4"/>
+    <connection from="e_in" to="n_out" fromLane="1" toLane="1" tl="j1" linkIndex="5"/>
+
+    <connection from="w_in" to="e_out" fromLane="0" toLane="0" tl="j1" linkIndex="6"/>
+    <connection from="w_in" to="s_out" fromLane="1" toLane="1" tl="j1" linkIndex="7"/>
+</connections>
