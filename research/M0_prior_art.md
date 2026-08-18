@@ -459,3 +459,168 @@ Lane, signal and simulation variables are read via **TraCI subscriptions**, whic
 `traci.vehicle.getLanePosition(v)` and `traci.vehicle.getSpeed(v)` **per vehicle, per lane,
 per step**, which is the §7 anti-pattern in the default observation path — the same defect as
 sumo-rl, in a codebase that otherwise gets the transport layer right.
+
+---
+
+## 5. Their conventions versus ours
+
+Our conventions: `D-006` (delay = time loss), `D-008` (teleporting off, validity counters),
+`D-013` (mandatory baselines), `D-017` (seeds, paired comparison), `D-018` (warm-up and
+measurement window), `D-020` (phase selection, constraint layer, periodic Δt), `D-022` (trip
+accounting), `D-025` (queue), `07_EXPERIMENT_METHODOLOGY.md` §2.
+
+Legend: **=** same · **≈** same family, different details · **✗** divergent, numbers not
+comparable · **—** absent.
+
+### 5.1 Action space and control (`D-020`, `D-023`)
+
+| Aspect | Ours (`D-020`) | sumo-rl | RESCO | LibSignal | PyTSC |
+| --- | --- | --- | --- | --- | --- |
+| Action form | Phase selection | Phase selection **=** | Phase selection **=** (+ cycle variants) | Phase selection **=** | **`phase_switch` binary, round-robin, by default ✗** (`phase_selection` available) |
+| Phase set source | Authored + validated against a conflict matrix (`D-023`) | Net file, greens auto-detected **≈** | Net file greens + hand-authored `phase_pairs` YAML **≈** | CityFlow JSON roadnet **✗** | Net file, parsed **≈** |
+| Decision interval Δt | Per-controller, global default; must be ≥ SUMO step and ≤ min green | 5 s, global **≈** | 5 s, global **≈** | 10 s, global **≈** | 5 s, global; asserted `== yellow_time` **≈** |
+| Min green | Enforced by constraint layer, per phase | `min_green + yellow_time` = 7 s effective **≈** | **— none** ✗ | Per-controller `t_min` (10 s for MP) **≈** | 5 s via action mask **=** |
+| Max green | Enforced, with a documented overshoot rule | Off by default; only fires on a "stay" request **✗** | **— none** ✗ | **—** ✗ | 60 s via action mask **=** |
+| Yellow | Enforced every step by the constraint layer | 2 s, per-step update **=** | 3 s, per-step update **=** | Inferred as `min(phase durations)` **✗** | 5 s **=** |
+| All-red | Enforced | **— not supported** ✗ | 2 s, only after permissive-left phases **≈** | **—** ✗ | Not separately modelled **≈** |
+| Conflict legality | Three-valued conflict matrix, request may be REJECTED | Net file only | Net file only | Roadnet only | Net file only |
+| Request outcome record | GRANTED / DEFERRED / HELD / FORCED / REJECTED, all recorded | **— silent hold** ✗ | **—** ✗ | **—** ✗ | Action mask, but no outcome record **≈** |
+| Two-tier (safety every step, policy every Δt) | Required | Yes **=** | Yes **=** | Yes **=** | Yes **=** |
+
+### 5.2 Metrics (`D-006`, `D-025`, §2)
+
+| Metric | Ours | sumo-rl | RESCO | LibSignal | PyTSC |
+| --- | --- | --- | --- | --- | --- |
+| **Primary delay** | SUMO `timeLoss`, s/veh | **— none** ✗ | tripinfo `timeLoss` **+ `departDelay`** ✗ (near-match) | default `1 - v̄/v_max`, dimensionless **✗**; opt-in "real delay" = per-lane clamped time loss **✗** | `1 - v̄/v_max`, dimensionless **✗** |
+| **Queue** | Halting < 0.1 m/s **for ≥ 1 s continuous**, count | `getLastStepHaltingNumber` — speed only, no duration **≈** | **Sticky**: queued once below 0.1 m/s, stays queued within 200 m **✗** | `queue_length` = lane vehicle count **✗**; `lane_waiting_count` = sticky wait flag **✗** | `getLastStepHaltingNumber` — speed only **≈** (closest) |
+| Waiting time | Cumulative time below 0.1 m/s | `getAccumulatedWaitingTime` **≈** | Time since first stop **✗** | Seeded then incremented every step **✗** | `VAR_WAITING_TIME / n_queued` per lane, lane-averaged **✗** |
+| Travel time | Depart→arrival, boundary sink **or** mid-link (`D-022`) | **—** | tripinfo `duration` **≈** | Per-vehicle accumulated counter **≈** | `VAR_CURRENT_TRAVELTIME / n_vehicles`, lane-averaged **✗** |
+| Throughput | Completed trips/h over the measurement window | arrived count **≈** | derivable from tripinfo **≈** | vehicles currently in network **✗** | `n_arrived` per step **≈** |
+| Per-vehicle-type split | Required from M1 (`§2.4`) | **—** ✗ | `VAR_TYPE` subscribed but unused in metrics **—** | **—** ✗ | **—** ✗ |
+| Metric ↔ controller-input identity | Same definition (`D-025`) | n/a (no controller) | Same (sticky queue used for both) **=** in principle | Different: MP uses `lane_count`, reports `queue_length` **✗** | Different: MP uses visibility-window counts, reports `n_queued` **✗** |
+
+### 5.3 Run protocol (`D-008`, `D-017`, `D-018`, `D-022`, `D-032`)
+
+| Aspect | Ours | sumo-rl | RESCO | LibSignal | PyTSC |
+| --- | --- | --- | --- | --- | --- |
+| Teleporting | `-1`, **asserted at startup**, refuses to run otherwise | `-1` default **≈** (no assert) | `-1` always **≈** (no assert) | SUMO default, **on** ✗ | `10000` — off by magnitude, not by flag **✗** |
+| Insertion loss | Counted; run marked invalid above threshold | `getPendingVehicles()` logged | `--eager-insert`, undeparted written to tripinfo **≈** | **—** ✗ | `n_loaded - n_departed` derivable, unused **≈** |
+| Gridlock detection | Explicit, run marked gridlocked | **—** ✗ | `init_ender` heuristic on depart delay **≈** | **—** ✗ | **—** ✗ |
+| Seeds | Fixed scheme, ≥30 paired seeds, **common random numbers across arms** | `"random"` by default ✗ | **`--random` always; seeding is a TODO** ✗ | `seed: 0`, single seed ✗ | **`--seed` never reaches SUMO** ✗ |
+| Replications | ≥30 paired | n/a | 5 trials × 100 episodes **✗** | 1 **✗** | 10 test episodes **✗** |
+| Warm-up | MSER-5 truncation, per scenario and demand level | **—** ✗ | **—** ✗ | **—** ✗ | `initial_wait_time`, default 0 **✗** |
+| Measurement window | Explicit, with cool-down | Whole run **✗** | Whole run **✗** | Whole run **✗** | Whole run **✗** |
+| Snapshots (`D-032`) | Warm up once, save, reuse | **—** | `saveState` / `--load-state`, saltlake only **≈** | **—** | **—** |
+| Trip accounting (`D-022`) | Three ways: boundary sink, mid-link arrival, still in-network | **—** | unfinished + undeparted written to tripinfo **≈** | **—** ✗ | **—** ✗ |
+| Reported uncertainty | 95% CI on paired differences | n/a | ±1 std over 5 seeds **≈** | **—** ✗ | over 10 test episodes **≈** |
+| Result selection | Pre-registered window | n/a | **Best episode** over the run **✗** (see §6) | Final **≈** | Periodic test **≈** |
+
+### 5.4 Baselines (`D-013`)
+
+| `D-013` requires | sumo-rl | RESCO | LibSignal | PyTSC |
+| --- | --- | --- | --- | --- |
+| Webster fixed-time (computed, not arbitrary) | — | **— equal split `[4,2,4,2,4,2,4,2]` on the grids** | **— `t_fixed: 30` round-robin** | **— `green_time: 25` round-robin** |
+| Actuated (ours) | — | — | — | — |
+| SUMO gap-actuated cross-check | — | — | — | — |
+| Max-Pressure | — | **Yes**, queue-based, per-movement, downstream-subtracted | Yes, but **count-based** | Yes, but **two defects, sign inverted** |
+| Coordinated fixed-time (M5b) | — | `fixed_offset`, `# TODO only implemented for 2 signal maps` | — | — |
+| Optional: SOTL | — | — | Yes | Yes |
+| Optional: Max-Wave | — | Yes (`MAXWAVE`) | — | `GreedyController` |
+
+**Not one of the four implements Webster, an actuated controller, or the SUMO gap-actuated
+cross-check.** Every fixed-time baseline in every project is either an equal split or a
+uniform round-robin — exactly the failure mode `D-013` was written to prevent. This is the
+single most important result of the review: the part of `D-013` that is hardest to get right
+is also the part that no prior-art project supplies.
+
+### 5.5 The divergences that matter most, ranked
+
+1. **Queue definition (`D-025`).** RESCO's sticky queue is not a queue in our sense, and
+   because it feeds MAXPRESSURE, RESCO's "Max-Pressure" is a *different controller* from
+   ours. LibSignal's `queue_length` is a vehicle count. Only PyTSC's is close, and it lacks
+   the 1 s duration condition. **Our Max-Pressure results will not be numerically comparable
+   to any published RESCO or LibSignal number**, only directionally comparable.
+2. **Delay definition (`D-006`).** LibSignal and PyTSC both report a dimensionless
+   `1 - v̄/v_max` under the name "delay". RESCO reports tripinfo `timeLoss` — the same family
+   as ours — but adds `departDelay` and averages over undeparted vehicles too. A number
+   labelled "delay" from LibSignal or PyTSC cannot be placed on the same axis as ours at all.
+3. **No warm-up and no measurement window anywhere.** All four average over the whole
+   episode, three of them starting from an empty network. Our `D-018` numbers will be
+   systematically *higher* (no free-flow filling period diluting the mean) than a published
+   whole-episode number on the same scenario.
+4. **Seeding.** None of the four can do the paired, common-random-numbers comparison
+   `D-017` requires. RESCO passes `--random` unconditionally; PyTSC never passes `--seed` at
+   all. This means published gaps between two controllers carry unpaired noise that our
+   design removes — their effect sizes and ours are not measured against the same variance.
+5. **Missing min/max green in RESCO.** With no min green and a 5 s decision interval that
+   yellow and all-red are consumed from, RESCO's controllers can operate at signal timings
+   that would be illegal in the field. Any comparison against RESCO numbers imports that.
+6. **PyTSC's default binary action space.** `D-020` rejected keep/switch precisely because it
+   cannot skip an empty phase. PyTSC results run under the default config are measuring a
+   more constrained controller than ours.
+
+---
+
+## 6. What RESCO's "~11% MPLight over Max-Pressure" actually measures
+
+Source: Ault & Sharon, *Reinforcement Learning Benchmarks for Traffic Signal Control*,
+NeurIPS 2021 Datasets & Benchmarks, **§4.1 "Validation", page 7**:
+
+> "For validating the MPLight implementation, a traffic scenario was configured to be similar
+> to the synthetic 4×4 symmetric network that was presented in the original MPLight
+> publication [Chen et al. 2020]. The RESCO network is depicted in Figure 3 4×4 Grid […]
+> Demand was set according to Config. 4 in Chen et al. […] Chen et al. 2020 reported a 13%
+> improvement for MPLight over Max-pressure. The RESCO results show a similar trend with an
+> **11% improvement**."
+
+Unpacking that, exactly:
+
+| Question | Answer |
+| --- | --- |
+| **Which network?** | RESCO's **`4x4 Grid` validation scenario** — a *synthetic* symmetric 16-signal grid built to mirror the network in the original MPLight paper (Chen et al., AAAI 2020). **Not** Cologne, **not** Ingolstadt, **not** any real city. |
+| **Which demand?** | "Config. 4 in Chen et al." — a synthetic demand configuration lifted from the MPLight paper and reproduced in SUMO. Episode length 3600 s from an empty network. |
+| **Which metric?** | "Delay (s)", the y-axis of Figure 4. In the codebase this is the per-trip mean of SUMO tripinfo `timeLoss` over all trips in the episode, including unfinished and undeparted vehicles (v2.0 additionally adds `departDelay`). |
+| **How measured?** | 5 random seeds, 100 episodes, learning curves smoothed with a 5-episode sliding window. Max-Pressure does not learn, so it appears as a flat dashed reference line. |
+| **Warm-up?** | None. Whole-episode average from an empty network. |
+| **What is "Max-Pressure" here?** | RESCO's `MAXPRESSURE`: greedy `argmax` over the 8 `phase_pairs` of per-movement `(inbound sticky-queued − downstream sticky-queued)`, no min green, no saturation-flow weighting, sensing truncated at 200 m. |
+
+**Three caveats that change how `D-013` should read this number.**
+
+1. **The two underlying delay values are never printed.** Table 1 covers only Ingolstadt and
+   Cologne (Single / Corridor / Region) and lists only IDQN, IPPO, MPLight and FMA2C — **it
+   contains no Max-Pressure row and no 4×4 Grid column**. The 11% is stated as a percentage
+   in prose and can only be eyeballed off Figure 4. It is not independently re-derivable from
+   the paper.
+2. **It is a validation number, not a benchmark result.** Its entire purpose in the paper is
+   to show that RESCO's MPLight reimplementation behaves like the original (13% → 11%). The
+   paper's actual conclusion about MPLight is the opposite in tone: §4.2 and §4.3 report that
+   MPLight *diverges* on Ingolstadt Region, that "MPLight, in our experiments, works well in
+   scenarios with similarly structured intersections. However, in scenarios with varying
+   irregular intersections we observed divergence in learning", and §4.3 concludes that
+   "synthetic scenarios […] relate poorly to more realistic scenarios from the perspective of
+   gauging the performance of reinforcement learning algorithms."
+3. **Table 1 reports the best-performing episode**, not final or mean performance —
+   "the best performing episode (not necessarily the final performance) of each algorithm
+   averaged over five random seeds". Selecting the maximum over ~100 noisy episodes is an
+   optimistically biased estimator. It does not directly contaminate the 11% (which comes
+   from Figure 4) but it does mean **no number in RESCO's Table 1 is comparable to a
+   pre-registered measurement-window mean of ours.**
+
+### What we would have to match to claim a comparable number
+
+To place our own MPLight-vs-Max-Pressure figure next to RESCO's 11%, we would have to adopt,
+simultaneously: their sticky 200 m-truncated queue definition (`D-025` violation), their
+12-movement / 8-phase-pair action space, 5 s Δt with 3 s yellow and **no min green**
+(`D-020` violation), no warm-up and a whole-episode window (`D-018` violation), delay as
+mean tripinfo `timeLoss` over all trips including undeparted (`D-006`-adjacent but not
+identical), unpaired seeds (`D-017` violation), and the Chen et al. Config-4 demand on their
+synthetic 4×4 grid.
+
+**Recommendation:** do not try. Four settled decisions would have to be violated to match one
+prose percentage on a synthetic validation scenario. What we *can* legitimately do is state a
+**directional** claim — "our learned controller improves on Max-Pressure by X% under our
+definitions, which is the same order as the 11–13% reported in the literature under different
+definitions" — with the divergences in §5 cited. `D-013`'s rationale sentence
+("Published gaps of learned methods over Max-Pressure are on the order of 11–13%") is
+accurate but should be read as *the synthetic-grid figure*, not a figure that survives on
+realistic networks. **This is an escalation item — see §8.**
