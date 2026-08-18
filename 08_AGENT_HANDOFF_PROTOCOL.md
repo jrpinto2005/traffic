@@ -262,6 +262,25 @@ A ticket is done when all of these hold. Not "the code works."
 | Implementation tickets | A branch per ticket: `ticket/T1.4-backend-adapter` |
 | Documents, decisions, tickets themselves | Directly on the default branch — they are the project's spine and there is nothing to integrate |
 
+### Parallel agents and the git index
+
+Added 2026-08-18, before the first concurrent wave. Several agents committing in the same
+working copy race on `.git/index.lock` and fail unpredictably — and a commit policy that
+demands frequency makes the race *more* likely, not less.
+
+| Situation | Arrangement |
+| --- | --- |
+| One agent at a time | Work in the repository directly: default branch for spikes, `ticket/<id>-<slug>` for builders. |
+| **Two or more agents concurrently** | Each gets its own **git worktree** and its own branch. The architect merges each as it finishes. |
+
+Worktree agents **share the project's virtualenv** rather than creating one: invoke
+`<repo>/.venv/bin/python` by absolute path instead of `uv run`. A worktree has no `.venv`, and
+syncing one costs a full SUMO download per agent.
+
+Because parallel tickets write to disjoint files, these merges are mechanical. **If two
+concurrent agents would touch the same file, the tickets were split along the wrong line** —
+that is a signal to re-split, not to coordinate.
+
 ### Why this matters more here than on a typical project
 
 The Reviewer archetype reviews diffs **against the decision register** (§6). A two-thousand-line
@@ -318,6 +337,22 @@ Review defects in this project, not style preferences. Consolidated from `D-031`
 - Result or trace I/O inside the step loop.
 - Caching added before a profile showed the recomputation mattered.
 - Any optimization without a before/after measurement.
+
+**Confirmed by prior art** — each of these was found in a published traffic-signal-control
+library during T0.1, which is why they are listed rather than assumed obvious:
+
+- **Per-vehicle backend polling inside the step loop**, sitting in the default observation or
+  reward path (sumo-rl, PyTSC).
+- **A results-affecting default that disagrees with its own documentation** — sumo-rl's
+  `max_green`: docstring says 60 and "ignored", code says 50 and conditionally honours it.
+- **A validity setting disabled by magnitude rather than by flag** — PyTSC's
+  `time_to_teleport: 10000`, correct only while episodes stay shorter than that.
+- **A config key that never reaches the simulator** — PyTSC's `seed`, `max_depart_delay` and
+  `waiting_time_memory`. *A parameter that appears to be set and is not is worse than one that
+  is absent*, because it invites the reader to believe an experiment was controlled when it
+  was not.
+- **A metric name that does not match its computation** — LibSignal's `queue_length`,
+  `throughput` and `lane_delay`, each carrying a self-doubting `TODO` in source.
 
 **Methodology**
 - A default parameter that affects results and is not in the register.
