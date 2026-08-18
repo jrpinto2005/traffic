@@ -624,3 +624,229 @@ definitions" — with the divergences in §5 cited. `D-013`'s rationale sentence
 ("Published gaps of learned methods over Max-Pressure are on the order of 11–13%") is
 accurate but should be read as *the synthetic-grid figure*, not a figure that survives on
 realistic networks. **This is an escalation item — see §8.**
+
+---
+
+## 7. Build or reuse, per component
+
+Framing: `02_PROJECT_CHARTER.md` §2.1 Consequence 3 makes reimplementation a legitimate
+*learning* choice; `D-031` makes it an efficiency question. The tiebreaker used below is:
+**reuse where the artifact is data or a well-tested external primitive; build where the
+artifact encodes one of our settled decisions.** Every component that encodes `D-006`,
+`D-020` or `D-025` must be ours, because adopting someone else's implementation of it silently
+adopts their decision instead.
+
+Per the ticket's Non-goal 1, none of this adopts anything. These are recommendations.
+
+| Component | Recommendation | Reasoning |
+| --- | --- | --- |
+| **Environment wrapper** | **BUILD** | Every candidate embeds a decision we have already made differently: sumo-rl swallows deferred requests and cannot express all-red (`D-020`, `D-023`); RESCO has no min/max green and needs hand-authored per-signal YAML; LibSignal routes through a CityFlow roadnet; PyTSC defaults to a binary action space `D-020` explicitly rejected. All four also lack warm-up, measurement window and paired seeding. Retrofitting `D-008`/`D-017`/`D-018` into any of them is more work than writing our own thin adapter, and leaves us maintaining a fork. **Study PyTSC's `common/` + `backends/` split as the model for the `D-002` seam** — it is the best worked example available — but write the code. |
+| **Baseline controllers** | **BUILD** — non-negotiable | `D-013` requires Webster, our actuated, SUMO gap-actuated and Max-Pressure. **Zero of the four projects implement the first three.** The fourth, Max-Pressure, exists in three of them and each is unusable for us: RESCO's is correct in form but defined over a sticky queue (`D-025` violation, and it changes the controller); LibSignal's is count-based, not queue-based; PyTSC's is outright buggy (absolute value on the pressure term, and `out_lane_vehicles` assigned rather than accumulated). Max-Pressure is ~30 lines. Write it against our `Queue` type. |
+| **Scenario format** | **BUILD (generate), REUSE (validate against)** | Our scenarios are parametrically generated (`T1.2`, `T1.3`) from a config, which none of these do for our purposes — they ship fixed nets. Build the generator. **Reuse RESCO's `grid4x4`, `arterial4x4`, `cologne1` and `ingolstadt1` net + route files as read-only validation fixtures** once we reach multi-intersection work: they are calibrated, freely licensed (Cologne CC BY-NC-SA, Ingolstadt GPL-3) and widely cited, so "does our pipeline load a real network" becomes a testable question. Do **not** adopt RESCO's per-signal YAML — PyTSC shows the lane sets and neighbour graph can be parsed from the net file, and hand-authored topology is a decision recorded in a config file rather than in the register. |
+| **Metrics** | **BUILD** | This is the highest-stakes "build" of the five. `07_EXPERIMENT_METHODOLOGY.md` §2.5 already requires one definition and one implementation. Two of the four report a dimensionless speed deficit as "delay"; one reports the lane vehicle count as "queue"; one reports vehicles-in-network as "throughput". None computes the per-vehicle-type split §2.4 requires from M1, and none does the three-way trip accounting `D-022` requires. There is nothing here to reuse. **Reuse SUMO's native outputs instead of anyone's wrapper**: `tripinfo` (`timeLoss`, `duration`, `waitingTime`, `departDelay`, plus `write-unfinished` / `write-undeparted`) and `getLastStepHaltingNumber` are the primitives, and `D-006` already says `timeLoss` is preferred *because* it is native and cannot drift from our own implementation. |
+| **Analysis** | **BUILD (thin), REUSE the libraries** | None of the four does paired comparison, common random numbers, confidence intervals on differences, or MSER-5 warm-up truncation. RESCO's analysis (`utils/logs.py`, `utils/graph.py`) parses its own log format and plots ±1 std over 5 unpaired seeds; it is not reusable and would import the best-episode selection rule (§6). Build a thin layer over pandas/scipy/matplotlib per `D-004`. This is a small component and the statistics are the deliverable — see `08_AGENT_HANDOFF_PROTOCOL.md` §7, do not build a framework here. |
+
+### 7.1 Does any of them already do substantially everything M1–M3 plan to do?
+
+**No — but the answer is closer for M1 than is comfortable, and the reason it is "no" is
+specific and worth stating.**
+
+| Milestone | Closest project | Gap |
+| --- | --- | --- |
+| **M1** — single intersection, oracle observation, honest baselines | RESCO covers roughly 60% of the *plumbing*: SUMO wrapper, phase-selection action space, Max-Pressure, a benchmark scenario set, multi-seed runs, tripinfo-based delay. | It covers **none of the honest-baselines half**: no Webster, no actuated, no SUMO gap-actuated cross-check, no paired seeds, no warm-up, no measurement window, no Δt sensitivity check, no three-way exit accounting, no run manifest, and a queue definition that changes what Max-Pressure *is*. M1's exit criteria are almost exactly the list of things RESCO does not do. |
+| **M2** — versioned trace format and 2D replay renderer with research overlays | None. | RESCO/LibSignal/PyTSC render via `sumo-gui` or CityFlow's replay viewer. There is no simulator-decoupled trace format and no research overlay anywhere. `D-009`'s record-then-replay design has no prior art in this set. |
+| **M3** — parametric camera model, `TrueState`/`Observation` type separation, sensing–control gap | PyTSC's `obs_dropout_prob` and `visibility` window, and RESCO's `max_distance = 200 m` truncation. | These are *incidental* sensing limits, not sensor models: a scalar Bernoulli drop and a radius. None has FOV, orientation, distance-dependent detection probability, position/speed noise, classification confidence or latency. Critically, **none has a type-level separation between true state and observation** — every one of them hands the controller a numpy array derived directly from TraCI. `01_CRITICAL_REVIEW.md` R-5 / charter S6 have no prior art here at all. |
+
+The honest summary: **the prior art solves the part of M1 that is easy to rewrite and skips
+the part that is hard to get right.** Reimplementing the wrapper costs us a few days;
+reimplementing the baselines and the methodology is the project. That is an argument for
+building, not against.
+
+---
+
+## 8. Escalation to the architect
+
+Per `08_AGENT_HANDOFF_PROTOCOL.md` §8. Three items, all decision-level.
+
+### 8.1 `D-013`'s rationale sentence should be qualified
+
+**Attempted:** confirming the "11–13% gap over Max-Pressure" figure that `D-013` cites as its
+justification for making Max-Pressure mandatory.
+
+**Finding:** the figure is real but narrower than the sentence implies. RESCO's 11% is a
+**validation result on a synthetic symmetric 4×4 grid** with demand copied from the MPLight
+paper, whose only purpose was to show that RESCO's reimplementation reproduces Chen et al.'s
+13%. On RESCO's *realistic* scenarios the paper reports MPLight diverging and concludes that
+synthetic scenarios "relate poorly to more realistic scenarios". The two underlying delay
+values are never printed; Table 1 contains no Max-Pressure row.
+
+**Options:** (a) leave `D-013` as-is — the decision (Max-Pressure is mandatory) is unaffected,
+only its rationale sentence is loose; (b) amend the rationale to say "on synthetic grid
+networks; on realistic irregular networks the published picture is mixed and learned methods
+frequently lose"; (c) additionally add to `D-013` an explicit statement that we will not claim
+comparability to published percentages.
+
+**Recommendation (labelled as a recommendation):** (b) plus (c). The decision itself is well
+made and if anything *better* supported by the realistic-scenario results — Max-Pressure is a
+strong baseline there, which is exactly why it must be beaten. But a rationale that reads as
+"RL beats Max-Pressure by 11–13%" will, three milestones out, become an expectation that a
+null result has to argue against.
+
+### 8.2 `D-025`'s spike question is answerable now, and the answer has a second half
+
+**Attempted:** the spike `D-025` requires — "confirm what SUMO's native halting counters
+actually measure, specifically whether they apply the duration condition or only the speed
+threshold."
+
+**Finding (partial, from prior-art source rather than from SUMO):** every project that uses
+`getLastStepHaltingNumber` (sumo-rl, PyTSC) treats it as a pure speed threshold, and sumo-rl's
+own source comment says so: *"In SUMO, a vehicle is considered halting if its speed is below
+0.1 m/s"*. No project applies a duration condition. **This is consistent with `D-025`'s
+1 s condition being ours alone, i.e. our queue counter cannot be `getLastStepHaltingNumber`
+and must be computed by us.** I have not verified this against SUMO itself — that requires
+T0.0 and belongs to T0.5.
+
+**The second half is the part worth a decision.** `D-025` says the controller queue and the
+metric queue are the same by default. Given that our queue will then differ from the queue in
+every published Max-Pressure result, our Max-Pressure is a slightly different controller from
+the published one. That is fine and defensible, but it should be **written down as an
+intended divergence in `D-025`** rather than discovered at M5 when someone asks why our
+Max-Pressure numbers do not line up.
+
+**Recommendation:** add one line to `D-025` recording that the 1 s duration condition is a
+deliberate divergence from all four surveyed projects, and that it changes Max-Pressure's
+input, not only our reporting.
+
+### 8.3 No prior art for `D-020`'s request-outcome record — confirming it is ours to design
+
+**Attempted:** finding a reference implementation for the constraint layer's
+GRANTED / DEFERRED / HELD / FORCED / REJECTED outcome record (the T1.6 contract).
+
+**Finding:** none of the four records anything. sumo-rl silently holds; RESCO has no
+constraints to violate; LibSignal defers inside each controller; PyTSC exposes an action
+*mask*, which is the closest thing and is genuinely a good idea — it lets a controller avoid
+making an illegal request rather than making one and being refused — but it still records no
+outcome.
+
+**This is not a blocker.** It is reported because `D-020`'s known-gap paragraph (what happens
+when max green expires mid-transition) asks for confirmation at implementation, and prior art
+offers no precedent either way: **no surveyed project models max green and a transition
+simultaneously**, so there is nothing to copy. The provisional answer in `D-020` (the override
+waits, and the overshoot is recorded) stands on its own reasoning.
+
+**Recommendation:** consider adding the action **mask** to the T1.6 contract *alongside* the
+outcome record, not instead of it. The mask is cheap, it is what an RL controller at M7 will
+want, and it makes REJECTED rare rather than routine. Flagging it here rather than building
+it, per §8 ("do not pick an option and proceed").
+
+---
+
+## 9. Specific things worth copying
+
+Concrete, in rough order of value.
+
+### 9.1 SUMO command-line flags (from RESCO)
+
+RESCO's launch flags are the best in the set and several map directly onto `D-008` and
+`D-022`:
+
+| Flag | Why |
+| --- | --- |
+| `--time-to-teleport -1` | `D-008` requirement. RESCO passes it unconditionally; we additionally **assert** it. |
+| `--tripinfo-output.write-unfinished True` | Gives us the "still in-network" leg of `D-022`'s three-way accounting for free, from a native output. |
+| `--tripinfo-output.write-undeparted True` | Gives us insertion loss per vehicle rather than as a bare counter. |
+| `--eager-insert` | RESCO's comment: "Undeparted not written correctly without this, slows down simulation though". Note the performance caveat for `D-031`. |
+| `--no-step-log True`, `--duration-log.disable True` | (PyTSC also) removes per-step console I/O from the hot loop. |
+
+### 9.2 Parameter values worth adopting as starting priors
+
+Not as decisions — as the literature's centre of mass, so our defaults are defensible and our
+Δt sensitivity check (`D-020`) has a reference point.
+
+| Parameter | RESCO | LibSignal | PyTSC | sumo-rl | Note |
+| --- | --- | --- | --- | --- | --- |
+| Decision interval Δt | 5 s | 10 s | 5 s | 5 s | `D-020`'s 5 s suggestion for Max-Pressure is the consensus value. |
+| Yellow | 3 s | inferred | 5 s | 2 s | 3 s is the most defensible; RESCO cites Ma & Wu. |
+| All-red | 2 s (conditional) | — | — | — | Only RESCO models it at all. |
+| Min green | — | 10 s | 5 s | 7 s effective | Wide spread; ours is a real decision, not a copy. |
+| Max green | — | — | 60 s | 50 s (off) | |
+| Sensing radius | 200 m | distance-limited | 75 m (10 bins × 7.5 m) | unlimited | Directly relevant to M3 sensor placement — 200 m is Chen et al.'s figure, 50 m is Ma & Wu's; the RESCO paper §2.2 notes this varies by publication and materially changes results. |
+| Vehicle size + min gap | 5 + 2.5 m | — | 7.5 m | 2.5 m gap | The 7.5 m occupancy unit is a useful queue-length-in-metres primitive for `D-025`'s secondary unit at M4. |
+| Episode length | 3600 s | 3600 s | 3600 s | 20000 s default | 3600 s is universal. |
+| Replications | 5 trials | 1 | 10 test episodes | n/a | All far below `D-017`'s ≥30 paired. Worth noting in our results document as a methodological improvement over the field. |
+
+### 9.3 Conventions and code patterns
+
+1. **PyTSC's `common/` + `backends/` layout** — the cleanest available illustration of where
+   the `D-002` backend seam falls: abstract `simulator`, `retriever`, `network_parser`,
+   `traffic_signal`, `metrics` with one concrete package per backend. Study before writing
+   `T1.4`.
+2. **PyTSC's action mask** (`get_allowable_phase_switches`) — see §8.3.
+3. **PyTSC's validity subscription set** — `n_teleported`, `n_colliding`,
+   `n_emergency_brakes`, `n_loaded`, `n_departed`, `n_arrived` in a single
+   `traci.simulation.subscribe` call. That is exactly `D-008`'s counter set, obtained at zero
+   per-step cost. Copy the subscription list; add the acting-on-it that PyTSC omits.
+4. **TraCI context subscriptions around a junction** (RESCO's
+   `traci.junction.subscribeContext(signal_id, CMD_GET_VEHICLE_VARIABLE, radius, [...])`) —
+   one call per junction per step returning every nearby vehicle's variables, instead of
+   per-vehicle polling. This is the `D-031`-compliant pattern for M3's sensor model, where we
+   will need per-vehicle position and speed within a radius. Note that RESCO then *undoes*
+   the benefit by iterating in Python; the subscription itself is the good part.
+5. **RESCO's 12-movement naming (`'N-E'`, `'S-S'`, …) and 8 phase pairs** — a compact,
+   readable convention for naming turn movements and NEMA-style phases. Worth borrowing as
+   *nomenclature* in `05_DOMAIN_MODEL.md`, independent of RESCO's hand-authored YAML.
+6. **PyTSC's `flickering_coef`** — penalising phase changes is a standard term we will want
+   when `D-024` (objective function) is decided; noting it exists.
+7. **`obs_dropout_prob`** (PyTSC) — the only sensing-degradation knob in the prior art.
+   A useful *floor* for M3: whatever our camera model does, it should reduce to this when all
+   other parameters are ideal.
+
+### 9.4 Test scenarios worth keeping as fixtures
+
+Read-only, for validation, not as our primary scenarios:
+
+| Scenario | Source | Use |
+| --- | --- | --- |
+| `cologne1` | RESCO (`nets/RESCO/cologne1`), CC BY-NC-SA | Single real intersection with a real signal program. Good M1 sanity check that our pipeline handles a non-synthetic net. |
+| `ingolstadt1` | RESCO, GPL-3 | Same, second geometry. |
+| `grid4x4` | RESCO | 16-signal synthetic grid; the M5 multi-intersection target and the network the 11% figure was measured on. |
+| `arterial4x4` | RESCO | Two-lane arterials + one-lane avenues; the natural M5b green-wave test case. |
+| `single-intersection` | sumo-rl | Minimal `.nod`/`.edg`/`.net`/`.rou`/`.sumocfg` set — the smallest complete SUMO example in the set, useful as a T0.2 reference while our own generator is being written. |
+
+### 9.5 Anti-patterns confirmed by prior art
+
+Worth recording because they are review-checklist items (§6, §7) that all four projects
+demonstrate:
+
+- **Per-vehicle TraCI polling inside the step loop** — sumo-rl's
+  `get_accumulated_waiting_time_per_lane` and PyTSC's `_compute_lane_position_matrix`. Both
+  sit in default observation/reward paths.
+- **A results-affecting default that disagrees with its own documentation** — sumo-rl's
+  `max_green` (docstring 60 and "ignored", code 50 and conditionally honoured).
+- **A validity setting disabled by magnitude rather than by flag** — PyTSC's
+  `time_to_teleport: 10000`, safe only while episodes are shorter than that.
+- **Config keys that never reach the simulator** — PyTSC's `seed`, `max_depart_delay` and
+  `waiting_time_memory` on the SUMO backend. A parameter that appears to be set and is not is
+  worse than one that is absent.
+- **A metric name that does not match its computation** — LibSignal's `queue_length`,
+  `throughput` and `lane_delay`, each carrying a `TODO` comment questioning itself.
+
+---
+
+## 10. Summary
+
+- **Build all five components.** Reuse SUMO's native outputs, RESCO's SUMO flags, RESCO's
+  test networks as fixtures, and PyTSC's architecture as a reference. Adopt none of the four
+  as a dependency.
+- **The decisive reason is `D-013`.** Not one of the four implements Webster, an actuated
+  controller, or the SUMO gap-actuated cross-check, and each Max-Pressure implementation is
+  either defined over a queue we have rejected, defined over vehicle counts, or buggy.
+- **Comparability to published numbers is limited by design, not by accident.** Queue
+  definition, delay definition, warm-up, measurement window and seeding all differ, and each
+  difference is a decision we made deliberately. Directional comparison is legitimate;
+  numerical comparison is not. This should be stated in every results document.
+- **No project does M2 or M3 at all.** The trace format, the renderer, and the
+  `TrueState`/`Observation` separation have no prior art in this set.
+- **Three escalation items** in §8, none blocking: qualify `D-013`'s rationale sentence,
+  record `D-025`'s 1 s condition as an intended divergence that changes Max-Pressure's input,
+  and consider adding an action mask alongside the T1.6 outcome record.
