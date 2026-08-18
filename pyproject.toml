@@ -22,6 +22,9 @@ dependencies = [
     "matplotlib>=3.9",
 ]
 
+[project.scripts]
+traffic-lab = "traffic_lab.experiments.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -29,11 +32,13 @@ dev = [
     "hypothesis>=6.100",
     "ruff>=0.6",
     "mypy>=1.11",
+    # Type stubs for mypy --strict; yaml.safe_load is otherwise untyped.
+    "types-PyYAML>=6.0",
 ]
 
-# T1.1 converts this into a package project and adds the traffic_lab build target.
-[tool.uv]
-package = false
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 100
