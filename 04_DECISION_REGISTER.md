@@ -179,9 +179,10 @@ modelling a phenomenon SUMO cannot express.
 | Concern | Choice | Rationale |
 | --- | --- | --- |
 | Language | Python 3.12+ | SUMO's ecosystem, TraCI, LibSUMO, and the entire TSC literature |
+| **Simulator install** | **`eclipse-sumo` from PyPI, pinned in `uv.lock`** | **Amended 2026-08-18 (T0.0).** Not a system package. Pins the SUMO version in the lockfile, so reproducing an experiment reproduces its simulator — `D-008` and Principle 7. Also guarantees the binary architecture matches the interpreter, which a Homebrew install on this machine would not have. |
 | Dependency/env management | `uv` | Fast, lockfile-based, reproducible; single tool for envs and deps |
 | Configuration | Pydantic v2 models, YAML on disk | Validation at load; typed configs; schema is self-documenting |
-| Experiment results | Parquet files + DuckDB for queries | No server; columnar; handles large sweeps; queryable without loading |
+| Experiment results | Parquet via **polars' native writer**, queried with DuckDB | No server; columnar; handles large sweeps. **pyarrow is excluded — see below.** |
 | Numerics | NumPy; Polars for results analysis | Polars over pandas for sweep-scale aggregation |
 | Plotting | Matplotlib + a project style module | See the note below; alternatives were considered and rejected |
 | Testing | pytest, with property-based tests for invariants | Invariant checking is load-bearing here |
@@ -192,6 +193,23 @@ modelling a phenomenon SUMO cannot express.
 **Note on the renderer.** Deliberately left open. The trace format (`D-030`) determines what
 the renderer must consume, and choosing a rendering technology before knowing that is
 backwards.
+
+**Note on pyarrow — do not re-add it** (amended 2026-08-18 after T0.0).
+
+`libsumo` bundles libarrow 24.0.0. Installing pyarrow alongside it produces a real ABI
+collision, not a theoretical one: both register the `file` filesystem scheme, and
+`pyarrow.parquet.write_table` then fails with
+`ArrowKeyError: Attempted to register factory for scheme 'file'`.
+
+This would have hit T1.11's experiment runner, which runs a simulation through libsumo and
+writes Parquet **in the same process**, on every run of every sweep. It would have appeared
+at M1 as an unexplained post-simulation crash pointing at a filesystem registry rather than
+at a version conflict.
+
+Polars writes and reads Parquet natively and DuckDB queries it natively; neither needs
+pyarrow. Verified with pyarrow removed. Because pyarrow is the reflexive companion to
+"Parquet", **this exclusion is recorded here so nobody re-adds it as an obvious dependency.**
+Full evidence in `research/M0_environment.md`.
 
 **Note on plotting** (owner asked whether something better than Matplotlib exists).
 Matplotlib stays, and the reason is not inertia:
@@ -472,8 +490,21 @@ Optional but recommended, both available in RESCO: SOTL and Max-Wave.
 
 **Rationale.** Max-Pressure is the reference point in this literature: decentralized, needs
 only upstream and downstream queue counts, has proven stability guarantees, and routinely
-matches or beats deep RL. Published gaps of learned methods over Max-Pressure are on the
-order of 11–13%. A project showing RL beating a naive 30s/30s plan has demonstrated nothing.
+matches or beats deep RL. A project showing RL beating a naive 30s/30s plan has demonstrated
+nothing.
+
+**Qualification added 2026-08-18 after T0.1.** An earlier version of this rationale cited
+"published gaps of 11–13%" without context. That figure is specifically RESCO's *synthetic
+symmetric 4×4 grid validation* (NeurIPS D&B 2021 §4.1), computed over 5 unpaired seeds with
+no warm-up and reported as the best episode of roughly a hundred — an optimistically biased
+estimator, and not re-derivable from the paper since the underlying values are never printed.
+The same paper's actual conclusion is that MPLight **diverges** on realistic irregular
+networks and that synthetic scenarios "relate poorly" to real ones.
+
+The decision is unchanged and arguably better supported. But the number is not a target: left
+unqualified it becomes an expectation that a legitimate null result would have to argue
+against three milestones from now. **Claim directional agreement with the literature, never
+numerical agreement.**
 
 Webster matters for the opposite reason: a *badly tuned* baseline manufactures improvement
 out of nothing, and "30s NS / 30s EW" from `00_RESEARCH_SPECIFICATION.md` §26 is a badly
@@ -767,6 +798,33 @@ actuated to 5 s would misrepresent actuated), so it is managed rather than hidde
    and set aside. If it is steep, Δt becomes a controlled experimental variable and all
    controllers are additionally compared at a common Δt.
 
+#### Addition: legal-action mask (adopted 2026-08-18 after T0.1)
+
+The constraint layer additionally exposes **which phases could be granted now**:
+
+```python
+def allowed_phases(self, intersection_id: IntersectionId) -> frozenset[PhaseId]
+```
+
+Adopted from PyTSC's `get_allowable_phase_switches`, which T0.1 identified as the one genuinely
+good idea in the surveyed prior art that nobody else has. It lets a controller **avoid making
+an illegal request** rather than being refused after the fact.
+
+Three reasons to add it now rather than at M7, despite `02_PROJECT_CHARTER.md` §6's rule
+against building for absent consumers:
+
+1. It is not a new abstraction or seam — it generalises `actionable()`, which the interface
+   already has, from "can I act" to "which actions are legal".
+2. Action masking is standard practice in RL over discrete constrained action spaces and
+   substantially improves learning. Adding it at M7 would change the `Controller` protocol
+   after five milestones of controllers exist.
+3. **It leaks nothing.** A controller already knows its own signal state exactly
+   (`05_DOMAIN_MODEL.md` §4.2), and the mask is derivable from that plus the static conflict
+   matrix. No true state is involved.
+
+The per-outcome counters stay regardless: a masked controller that still requests an illegal
+phase is a bug worth seeing.
+
 #### Known gap, surfaced while writing the T1.6 contract
 
 **Undecided: what happens when max green expires while a phase transition is in progress.**
@@ -1004,6 +1062,15 @@ imply queued. That instinct now needs to become a testable rule.
 | **Secondary unit** | Length (metres), reported from M4 | Count and length diverge sharply under mixed vehicle types — five motorcycles occupy far less road than five cars — so this becomes a *motorcycle-relevant* metric, not bookkeeping |
 | **Distance to stop line** | **No condition at M1** | Deferred to M5, where spillback makes "which intersection does this queue belong to" a real question rather than a hypothetical one |
 | **Controller queue vs. metric queue** | **Same definition** | They may diverge later, but only deliberately and documented. Identical by default means a controller optimizing queues is optimizing the thing we report |
+
+**Divergence from all surveyed prior art, recorded deliberately (T0.1, 2026-08-18).**
+No project surveyed applies a duration condition: RESCO sets a `queued` flag on first stop and
+**never resets it** while the vehicle is within 200 m, LibSignal's `queue_length` is literally
+the lane vehicle count, and PyTSC uses SUMO's speed-threshold-only halting count. Our 1 s
+condition is therefore an intentional departure, and its consequence is larger than reporting:
+because Max-Pressure is defined over queue counts, **a different queue definition is a
+different controller.** RESCO's Max-Pressure and ours are not the same algorithm. Any
+comparison against their published numbers must say so.
 
 **Spike required before implementation.** Confirm what SUMO's native halting counters
 (`getLastStepHaltingNumber` and the equivalent lane-area detector output) actually measure —
@@ -1346,6 +1413,7 @@ a hard error rather than undefined behaviour.
 | Version | Change |
 | --- | --- |
 | 1.0 | Initial register. `D-005`, `D-016`, `D-019` settled from owner decisions; `D-001`–`D-018` proposed by the architect pending ratification; `D-020`–`D-030` open or deferred. |
+| 1.4 | **M0 findings applied, 2026-08-18.** `D-004` amended twice from T0.0: SUMO installs as the `eclipse-sumo` PyPI distribution pinned in `uv.lock` rather than a system package, and **pyarrow is excluded** after a reproduced ABI collision with libsumo that would have broken T1.11's runner on every run. From T0.1: `D-013`'s "11–13%" claim qualified (it is a synthetic-grid, best-of-100, unpaired-seed figure, and the same paper concludes MPLight diverges on realistic networks); `D-025` records the 1 s halting condition as a deliberate divergence from all surveyed prior art, with the consequence that RESCO's Max-Pressure and ours are not the same algorithm; `D-020` gains a legal-action mask adopted from PyTSC. |
 | 1.3 | **D-022 confirmed, 2026-08-18.** Owner confirmed the arrivals model, turn-ratio routing, and routing policy as formalised; no changes required. This unblocked `05_DOMAIN_MODEL.md`. Documents `05`, `06`, `07`, `08` written. `09_GLOSSARY.md` dropped — the canonical ↔ SUMO mapping lives in `05_DOMAIN_MODEL.md` §7, and a separate glossary would be a second place to drift. |
 | 1.2 | **Second ratification pass, 2026-08-14.** `D-010` ratified after expansion. `D-031` ratified after the owner clarified that "efficiency" meant code efficiency and profiling; the entry was restructured from two categories to three, adding **code-level efficiency as a standing measured practice** (profiling harness, per-milestone hot-path report, performance regression guard, and the rule that an optimization without a before/after number is not accepted). **M1 is now fully unblocked.** |
 | 1.1 | **Owner ratification pass, 2026-08-13.** `D-001`–`D-004`, `D-006`, `D-008`, `D-009`, `D-011`–`D-015`, `D-017`, `D-018` ratified and moved to SETTLED. All four M1 blockers closed: `D-020` (phase selection + constraint layer + periodic decision interval, per owner instruction), `D-022` (owner-specified source/propagation/attrition/sink model, formalised), `D-023` (three-valued conflict matrix, authored-then-validated phases), `D-025` (halting queue definition). `D-010` expanded on owner request and held at PROPOSED. Two new entries: `D-031` (efficiency and reuse posture — architect's reframing of an owner instruction, PROPOSED) and `D-032` (initial-state snapshots, derived from the owner's demand model). `D-004` extended with a plotting-library comparison; `D-017` extended with Monte Carlo replication guidance; `D-021` extended with the attrition/estimation-bias problem arising from `D-022`; `D-024` expanded to state the issue concretely. |
