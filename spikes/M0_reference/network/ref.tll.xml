@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+T0.2 reference scenario — hand-authored signal program.
+
+Link indices below were NOT guessed. They were discovered empirically: pass 1 ran netconvert
+on ref.nod.xml/ref.edg.xml/ref.con.xml with node C already typed traffic_light, letting
+netconvert auto-assign linkIndex per <connection>, then that auto-generated net.xml was
+inspected. netconvert orders links N, E, S, W (clockwise from north), and within an approach:
+right-turn lane first, then through lanes left-to-right:
+
+  0  N-right(lane0)   3  E-right(lane0)   6  S-right(lane0)   9  W-right(lane0)
+  1  N-through(lane0) 4  E-through(lane0) 7  S-through(lane0) 10 W-through(lane0)
+  2  N-through(lane1) 5  E-through(lane1) 8  S-through(lane1) 11 W-through(lane1)
+
+Two logical phases per the ticket: NS and EW. Per D-023 point 3, yellow and all-red are
+attributes of the transition between phases, not phases in their own right — they exist here
+because SUMO's tlLogic format requires an explicit state string for every second of the
+program, not because they count as a third and fourth phase in the domain model's sense.
+
+All states use only 'G' (protected green) and 'r' (red) for the green phases, and 'y' for the
+transition — no lowercase 'g' anywhere, because D-023 point 4 restricts M1 to protected turns
+only, and this network has no permitted movements to encode.
+
+Durations are illustrative for a spike, not a Webster calculation: 33 s green, 3 s yellow,
+2 s all-red per direction (38 s per half-cycle, 76 s cycle).
+-->
+<tlLogics>
+    <tlLogic id="C" type="static" programID="ref" offset="0">
+        <phase duration="33" state="GGGrrrGGGrrr"/>  <!-- NS green -->
+        <phase duration="3"  state="yyyrrryyyrrr"/>  <!-- NS yellow -->
+        <phase duration="2"  state="rrrrrrrrrrrr"/>  <!-- all-red -->
+        <phase duration="33" state="rrrGGGrrrGGG"/>  <!-- EW green -->
+        <phase duration="3"  state="rrryyyrrryyy"/>  <!-- EW yellow -->
+        <phase duration="2"  state="rrrrrrrrrrrr"/>  <!-- all-red -->
+    </tlLogic>
+</tlLogics>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+T0.2 reference scenario — demand.
+
+Constant (fixed-headway, not Poisson) flow from all four approaches, straight through only,
+per the ticket ("constant demand from all four approaches") and Non-goal 3 ("do not add
+demand beyond constant flows; turn ratios are T0.5"). Right-turn lanes exist in the network
+(ref.con.xml) but carry no demand here — a downstream ticket that wants turning demand
+supplies its own <flow>/<route> file against this same network; the network files themselves
+(ref.nod/edg/con/tll.xml) are what must not change.
+
+300 veh/h per approach (headway 12 s, period="12"). At 33 s green / 76 s cycle, g/C = 0.434;
+two 1800 veh/h/lane-equivalent lanes give ~1562 veh/h approach capacity, so this is a
+moderate, sub-saturation load intentionally — a baseline. T0.4 (footguns) needs above-capacity
+demand and is expected to author its own heavier flow file against this network rather than
+reuse this one unmodified.
+-->
+<routes>
+    <vType id="car" length="5.0" minGap="2.5" maxSpeed="16.67" accel="2.6" decel="4.5"
+           sigma="0.5" carFollowModel="Krauss"/>
+
+    <route id="route_N_S" edges="N2C C2S"/>
+    <route id="route_S_N" edges="S2C C2N"/>
+    <route id="route_E_W" edges="E2C C2W"/>
+    <route id="route_W_E" edges="W2C C2E"/>
+
+    <flow id="flow_N_S" type="car" route="route_N_S" begin="0" end="3600" period="12"/>
+    <flow id="flow_S_N" type="car" route="route_S_N" begin="0" end="3600" period="12"/>
+    <flow id="flow_E_W" type="car" route="route_E_W" begin="0" end="3600" period="12"/>
+    <flow id="flow_W_E" type="car" route="route_W_E" begin="0" end="3600" period="12"/>
+</routes>

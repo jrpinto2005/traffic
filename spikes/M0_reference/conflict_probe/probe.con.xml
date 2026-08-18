@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Q4 probe, THROWAWAY, not part of the reusable T0.2 scenario.
+
+Same nodes/edges as ../network/ref.{nod,edg}.xml. Adds a left-turn connection from the inner
+(lane1) of each approach, on top of that lane's existing through use — i.e. lane1 becomes a
+shared through+left lane, same as many real intersections. This is deliberately NOT how the
+reference scenario's signal program works (that stays protected-turns-only, no lefts, per
+D-023 point 4). It exists only to see how SUMO's <request> foes/response matrix represents a
+left-turn-vs-opposing-through pair, which is the textbook PERMITTED case, so we never build a
+network we can't reason about by hand.
+-->
+<connections>
+    <connection from="N2C" to="C2S" fromLane="0" toLane="0"/>
+    <connection from="N2C" to="C2S" fromLane="1" toLane="1"/>
+    <connection from="N2C" to="C2W" fromLane="0" toLane="0"/>
+    <connection from="N2C" to="C2E" fromLane="1" toLane="1"/>   <!-- NEW: N left -->
+
+    <connection from="S2C" to="C2N" fromLane="0" toLane="0"/>
+    <connection from="S2C" to="C2N" fromLane="1" toLane="1"/>
+    <connection from="S2C" to="C2E" fromLane="0" toLane="0"/>
+    <connection from="S2C" to="C2W" fromLane="1" toLane="1"/>   <!-- NEW: S left -->
+
+    <connection from="E2C" to="C2W" fromLane="0" toLane="0"/>
+    <connection from="E2C" to="C2W" fromLane="1" toLane="1"/>
+    <connection from="E2C" to="C2N" fromLane="0" toLane="0"/>
+    <connection from="E2C" to="C2S" fromLane="1" toLane="1"/>   <!-- NEW: E left -->
+
+    <connection from="W2C" to="C2E" fromLane="0" toLane="0"/>
+    <connection from="W2C" to="C2E" fromLane="1" toLane="1"/>
+    <connection from="W2C" to="C2S" fromLane="0" toLane="0"/>
+    <connection from="W2C" to="C2N" fromLane="1" toLane="1"/>   <!-- NEW: W left -->
+</connections>

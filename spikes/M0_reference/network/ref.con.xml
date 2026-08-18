@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+T0.2 reference scenario — connections.
+
+Explicit lane-to-lane connections, written by hand rather than left to netconvert's default
+guesser, because the point of this ticket is to understand the format.
+
+Lane layout per approach (2 lanes, 0 = rightmost per 05_DOMAIN_MODEL.md §7):
+  lane 0 (right/outer): through + right turn
+  lane 1 (left/inner):  through only
+
+No left-turn connections exist in this network. D-023 point 4 restricts M1 scenarios to
+protected turns only, and the only way to run a *left* turn as protected with just the two
+phases (NS, EW) this ticket specifies would be to give the opposing through movement a
+separate phase (4 phases) or a leading/lagging arrow — out of scope here. Through and right
+turns are the only movements that are simultaneously (a) always geometrically non-conflicting
+with each other on a 2-phase NS/EW split and (b) protected. Omitting left turns is therefore
+not a simplification of convenience; it is the only way to satisfy "two phases" and
+"protected turns only" at once. See research/M0_reference_scenario.md Q4 for a second,
+throwaway network (spikes/M0_reference/conflict_probe/) that adds a left-turn lane purely to
+inspect how SUMO represents the resulting permitted/conflicting relationship.
+
+Right-hand traffic. Directions below are the compass direction of travel through C.
+-->
+<connections>
+    <!-- North approach (N2C), travelling south -->
+    <connection from="N2C" to="C2S" fromLane="0" toLane="0"/>   <!-- through -->
+    <connection from="N2C" to="C2S" fromLane="1" toLane="1"/>   <!-- through -->
+    <connection from="N2C" to="C2W" fromLane="0" toLane="0"/>   <!-- right turn -->
+
+    <!-- South approach (S2C), travelling north -->
+    <connection from="S2C" to="C2N" fromLane="0" toLane="0"/>   <!-- through -->
+    <connection from="S2C" to="C2N" fromLane="1" toLane="1"/>   <!-- through -->
+    <connection from="S2C" to="C2E" fromLane="0" toLane="0"/>   <!-- right turn -->
+
+    <!-- East approach (E2C), travelling west -->
+    <connection from="E2C" to="C2W" fromLane="0" toLane="0"/>   <!-- through -->
+    <connection from="E2C" to="C2W" fromLane="1" toLane="1"/>   <!-- through -->
+    <connection from="E2C" to="C2N" fromLane="0" toLane="0"/>   <!-- right turn -->
+
+    <!-- West approach (W2C), travelling east -->
+    <connection from="W2C" to="C2E" fromLane="0" toLane="0"/>   <!-- through -->
+    <connection from="W2C" to="C2E" fromLane="1" toLane="1"/>   <!-- through -->
+    <connection from="W2C" to="C2S" fromLane="0" toLane="0"/>   <!-- right turn -->
+</connections>
