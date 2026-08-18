@@ -1,0 +1,57 @@
+[project]
+name = "traffic-lab"
+version = "0.0.0"
+description = "Research platform for adaptive traffic signal control"
+requires-python = ">=3.12"
+
+dependencies = [
+    # Simulation backend. Installed as a Python distribution rather than a system
+    # package so the SUMO version is pinned in uv.lock — see D-004 and D-008.
+    "eclipse-sumo==1.27.1",
+    "libsumo==1.27.1",
+    "traci==1.27.1",
+    "sumolib==1.27.1",
+    # Core
+    "numpy>=2.0",
+    # polars writes/reads parquet natively (Rust arrow-rs). pyarrow is deliberately
+    # NOT a dependency: it collides with libsumo's bundled libarrow. See D-004.
+    "polars>=1.0",
+    "duckdb>=1.0",
+    "pydantic>=2.8",
+    "pyyaml>=6.0",
+    "matplotlib>=3.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "hypothesis>=6.100",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+# T1.1 converts this into a package project and adds the traffic_lab build target.
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# D-004: strict on the domain package, where the truth/observation separation
+# depends on types being real rather than decorative.
+[[tool.mypy.overrides]]
+module = "traffic_lab.domain.*"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
