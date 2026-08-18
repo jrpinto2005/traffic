@@ -833,7 +833,21 @@ demonstrate:
 
 ---
 
-## 10. Summary
+## 10. Register status after this spike
+
+`08_AGENT_HANDOFF_PROTOCOL.md` §5 requires that every register decision a spike was meant to
+inform is either updated or **explicitly confirmed**. A Spike may not amend the register
+(§2.1), so this section records the status and the amendments requested in §8.
+
+| Decision | Status after T0.1 | Action |
+| --- | --- | --- |
+| `D-020` — action space, constraint layer, periodic Δt | **CONFIRMED unchanged.** Phase selection is the majority convention (3 of 4 projects); the two-tier structure (safety every step, policy every Δt) is used by all four; 5 s is the consensus Δt. PyTSC's binary `phase_switch` default is the one dissent, and `D-020`'s stated reason for rejecting it — it cannot skip an empty phase — holds against PyTSC's implementation. | None. One optional addition suggested in §8.3 (action mask alongside the outcome record). |
+| `D-013` — mandatory baseline set | **CONFIRMED as a decision; its rationale sentence needs amendment.** The baseline set is if anything better justified than when written: every surveyed project's fixed-time baseline is an equal split or a uniform round-robin, which is the exact failure `D-013` prevents. | Architect amendment requested, §8.1. |
+| `D-025` — queue definition | **CONFIRMED, with a divergence to record.** No surveyed project applies a duration condition; two do not use a halting count at all. Our 1 s condition is ours alone and changes Max-Pressure's *input*, not only our reporting. | Architect amendment requested, §8.2. The SUMO-side half of `D-025`'s required spike (what `getLastStepHaltingNumber` actually measures) remains **open** and belongs to T0.5. |
+| `D-006` — delay = time loss | **CONFIRMED, not amended.** RESCO independently converged on tripinfo `timeLoss` as its headline delay. The two projects that use a dimensionless speed deficit under the name "delay" are a direct demonstration of the ambiguity `D-006` exists to close. | None. |
+| `D-008` — teleporting disabled, validity counters | **CONFIRMED and strengthened.** RESCO passes `--time-to-teleport -1` unconditionally; PyTSC disables teleporting only by magnitude; LibSignal leaves it at SUMO's default. `D-008`'s requirement to **assert** rather than merely pass the flag is vindicated. | None. |
+
+## 11. Summary
 
 - **Build all five components.** Reuse SUMO's native outputs, RESCO's SUMO flags, RESCO's
   test networks as fixtures, and PyTSC's architecture as a reference. Adopt none of the four
