@@ -271,3 +271,191 @@ hindsight", so the *reward* uses a real-time approximation. The *reported* delay
 - Validity: teleports are structurally impossible (good), but there is no insertion-failure
   threshold and no gridlock detector. `init_ender` optionally aborts if any pending vehicle
   has waited ≥ 1800 s.
+
+---
+
+## 3. LibSignal (DaRL-LibSignal/LibSignal)
+
+`spikes/M0_prior_art/LibSignal`.
+
+### Purpose
+A **cross-simulator** framework: one agent implementation runs against SUMO, CityFlow or
+CBEngine through a `world/` abstraction (`world_sumo.py`, `world_cityflow.py`,
+`world_openengine.py`). Its selling point is sim-to-real / sim-to-sim transfer — the README
+advertises "Conversion between SUMO and CityFlow is carefully calibrated" and links two
+sim-to-real papers.
+
+### Scenario format
+**CityFlow-first.** The SUMO scenarios are shipped alongside a converted CityFlow JSON
+roadnet: `configs/sim/sumo1x1_colight.cfg` names both
+`combined_file: raw_data/cologne1/cologne1.sumocfg` and
+`roadnetFile: raw_data/cologne1/cologne1_roadnet_red.json`. The JSON roadnet is what defines
+intersections, phases and lane links; the SUMO net is the execution substrate. Configuration
+is layered YAML (`configs/tsc/base.yml` + per-agent override) plus a JSON sim config.
+
+### Action space
+`gym.spaces.Discrete(len(inter_obj.phases))` — phase selection. Decision interval
+`action_interval: 10` s (`base.yml`). Yellow is inserted by `world_sumo.create_yellows`.
+
+**Yellow duration is inferred, not configured.** `world_sumo.py:63`:
+
+```python
+self.yellow_phase_time = min([i.duration for i in self.eng.trafficlight.getAllProgramLogics(self.id)[0].phases])
+```
+
+i.e. the shortest phase in the net file's first program is assumed to be the yellow. On a net
+with a short green this silently mis-identifies the yellow. `base.yml` also carries
+`yellow_length: 5`, which the SUMO world ignores. No all-red. No max green. Min green is
+whatever each controller enforces for itself (`t_min`).
+
+### Baselines implemented
+`agent/fixedtime.py`, `agent/maxpressure.py`, `agent/sotl.py`, plus RL agents (DQN, FRAP,
+CoLight, PressLight, MPLight, MADDPG, PPO, SAC, MAGD).
+
+- **fixedtime** — `t_fixed: 30`, round-robin over phases. This is literally the
+  "30 s NS / 30 s EW" plan that `D-013` names as a badly-tuned baseline.
+- **maxpressure** — `t_min: 10` s min green, then
+  `argmax_phase sum(lvc[start] - lvc[end] for start, end in phase_available_lanelinks[phase])`
+  where `lvc = get_info("lane_count")`. **`lane_count` is the total number of vehicles on the
+  lane within the sensing distance, not the queue.** So LibSignal's Max-Pressure is
+  count-based, where RESCO's is queue-based. The two are different algorithms sharing a name.
+- **sotl** — thresholds `min_green_vehicle`, `max_red_vehicle`, `t_min`, over
+  `lane_waiting_count`.
+
+No Webster. No actuated. No SUMO gap-actuated cross-check.
+
+### Metric definitions
+This is where LibSignal diverges hardest.
+
+| LibSignal name | Computation (`world/world_sumo.py`) | Unit |
+| --- | --- | --- |
+| `lane_delay` (**"approximate delay", the default**) | `1 - lane_avg_speed / lane_speed_limit` | **dimensionless, [0,1]** |
+| "real delay" (`get_real_delay`, opt-in via `delay_type`) | Per lane traversed: `max(0, observed_time_on_lane - lane_length/min(lane_max_speed, vehicle_max_speed))`, summed over the vehicle's lane sequence | s |
+| `lane_waiting_count` | count of vehicles with `wait > 0`, where `wait` is seeded from `getWaitingTime` once and then incremented by `step_length` **every step regardless of current speed** | vehicles |
+| `queue_length` | `lane_measures['queue_length'] + 1` for **every** vehicle on the lane, i.e. it equals the lane vehicle count. Carries the source comment `#TODO: CHEC ITS RIGHT CALCULATION?` | vehicles |
+| `throughput` | `len(self.vehicles)` — vehicles **currently tracked**, not completed trips. `#TODO: check if only trach left cars` | count |
+| `real_average_travel_time` | mean of a per-vehicle accumulated time counter | s |
+
+Three of these are mislabelled relative to any standard definition: `lane_delay` is not a
+delay, `queue_length` is not a queue, and `throughput` is not a throughput. The "real delay"
+path is a hand-rolled reimplementation of time loss with a **per-lane clamp at zero**, which
+makes it systematically larger than SUMO's `timeLoss` (SUMO nets losses and gains across the
+whole trip; LibSignal cannot go negative on any lane).
+
+Defaults: `steps: 3600`, `episodes: 200`, `seed: 0` (single seed), no warm-up, no measurement
+window, teleporting left at the SUMO default (**not disabled**).
+
+---
+
+## 4. PyTSC (rbokade/pytsc)
+
+`spikes/M0_prior_art/PyTSC` · paper: Bokade & Jin, *Sensors* 25(5):1302, 2025
+(arXiv:2410.18202). Note: the paper does not carry the repo URL in its abstract page; the
+URL `https://github.com/rbokade/pytsc` comes from the HTML full text. The org names guessed
+from the paper title (`UMass-LIDS`, `tsc-benchmark`) do not exist.
+
+### Purpose
+A MARL-focused unified platform whose stated goal is fixing "slow simulation speeds and
+convoluted, difficult-to-maintain codebases" in the existing platforms. Supports SUMO and
+CityFlow.
+
+### Architecture — worth studying independently of whether we reuse it
+`pytsc/common/` holds abstract bases (`simulator`, `retriever`, `network_parser`,
+`traffic_signal`, `metrics`, `observations`, `actions`, `reward`) and `pytsc/backends/sumo/`
+and `pytsc/backends/cityflow/` hold one concrete implementation each. This is **exactly the
+shape `D-002` describes** for our backend adapter, with the difference that PyTSC has two
+real implementations and we would have one. It is the best available worked example of where
+the seam should fall.
+
+### Scenario format
+Native simulator files (`.sumocfg` + `.net.xml`, or CityFlow JSON) plus a per-scenario
+`config.yaml` layered over `pytsc/scenarios/default/config.yaml`. Network topology, phases
+and lane links are **parsed from the net file** by `backends/sumo/network_parser.py` — no
+hand-authored lane sets, unlike RESCO. Ships synthetic grid generators
+(`generators/grid_generator.py`) and trip generators, plus scenarios `2x2_sumo_grid`,
+`3x3_sumo_grid`, `cologne3`, and a family of `random_grid*` scenarios.
+
+### Action space
+Two, selected by `signal.action_space`:
+
+- **`phase_switch` (the default)** — binary: `0` hold, `1` advance to the next phase in a
+  round-robin cycle (`round_robin: True`). `D-020` considered and **rejected** exactly this
+  as the canonical form, on the grounds that it cannot skip an empty phase.
+- **`phase_selection`** — index of the phase to switch to. Available but not the default.
+- `CentralizedActionSpace` composes either into a joint action of size `n_actions ** n_agents`.
+
+Constraint handling is an **action mask**: `TLSFreePhaseSelectLogic.get_allowable_phase_switches(time_on_phase)`
+returns a per-phase 0/1 vector enforcing `min_green_time: 5`, `max_green_time: 60` and the
+green→yellow ordering. Defaults `yellow_time: 5`, `delta_time: 5`, with a hard assertion
+`yellow_time == delta_time`. Masking is a cleaner mechanism than sumo-rl's silent hold, but
+it still records no outcome: a controller cannot tell "I was overridden" from "I chose this".
+
+### Baselines implemented
+`pytsc/controllers/controllers.py`: `FixedTimeController(green_time=25)` round-robin,
+`GreedyController`, `MaxPressureController`, `SOTLController(theta=3, mu=4, phi_min=5)`,
+`RandomController`. No Webster, no actuated.
+
+**PyTSC's Max-Pressure has two defects.** In `_compute_pressure_for_phase`:
+
+```python
+for inc_lane, out_lanes in phase_inc_out_lanes.items():
+    inc_lane_vehicles = sum([p >= 0.0 for p in inc_pos_mat])
+    out_lane_vehicles = 0
+    for out_lane in out_lanes:
+        out_pos_mat = ...
+        out_lane_vehicles = sum([p >= 0.0 for p in out_pos_mat])   # assignment, not +=
+    pressure += np.abs(inc_lane_vehicles - out_lane_vehicles)      # absolute value
+```
+
+1. `out_lane_vehicles` is **assigned** inside the loop, so only the last outbound lane counts.
+2. `np.abs(...)` means a movement whose *downstream* is more congested than its inbound scores
+   **high** pressure. That inverts the sign of the controlling term and defeats the entire
+   point of pressure control.
+
+It also counts all vehicles within visibility (`p >= 0.0`), not queued ones, so it is
+count-based like LibSignal rather than queue-based like RESCO. **Do not port this
+implementation.**
+
+### Metric definitions
+
+| PyTSC name | Computation (`backends/sumo/metrics.py`, `retriever.py`) | Unit |
+| --- | --- | --- |
+| `n_queued` | `LAST_STEP_VEHICLE_HALTING_NUMBER` per lane, summed | vehicles |
+| **`mean_delay`** | `1 - norm_mean_speed`, where `norm_mean_speed` is the lane-mean of `mean_speed / lane_max_speed` | **dimensionless, [0,1]** |
+| `average_travel_time` | per lane, `VAR_CURRENT_TRAVELTIME / n_vehicles`, then averaged **over lanes** | not a trip travel time |
+| `average_wait_time` | per lane, `VAR_WAITING_TIME / n_queued`, averaged over lanes | s |
+| `density` | lane-mean `LAST_STEP_OCCUPANCY` | fraction |
+| `pressure` | sum of per-signal pressure | vehicles |
+| `flickering_signal` | mean of per-signal `phase_changed` | fraction |
+
+`average_travel_time` deserves a flag: `VAR_CURRENT_TRAVELTIME` is SUMO's *estimated lane
+traversal time* (`length / mean_speed`), not a realised trip duration. Dividing it by the
+lane's vehicle count and averaging over lanes produces a quantity with no clean
+interpretation. It is not comparable to anything in `07_EXPERIMENT_METHODOLOGY.md` §2.
+
+`n_queued` uses SUMO's native halting counter, which is the **closest of the four projects to
+`D-025`** — same 0.1 m/s threshold, missing only the 1 s duration condition.
+
+### Run protocol and validity
+- `delta_time: 5`, `sim_length: 3600`, `episode_limit: 360` s in the default config
+  (scenario configs override).
+- `initial_wait_time: 0` — a warm-up parameter exists and is **off by default**.
+- Validity counters are the best of the four: `n_teleported`, `n_colliding`,
+  `n_emergency_brakes`, `n_loaded`, `n_departed`, `n_arrived`, all subscribed and reported
+  per step. Nothing acts on them — a run is never marked invalid.
+- `time_to_teleport: 10000` — longer than a 3600 s episode, so teleporting is disabled *by
+  magnitude*, not by the `-1` flag. A longer episode would silently re-enable it.
+- **`--seed` is never passed to SUMO.** `start_simulator()` builds the command line with
+  `--start`, `--no-warnings`, `--time-to-teleport`, `--quit-on-end`, `--no-step-log`,
+  `--duration-log.disable`, `--remote-port` — and nothing else. The config's `seed:` reaches
+  only `random.seed()` in Python. `max_depart_delay: 0` and `waiting_time_memory: 10000` are
+  likewise never passed to the SUMO backend; they are dead keys there.
+- `obs_dropout_prob` (default 0.0) is the only sensing-degradation knob in any of the four
+  projects. It is a single scalar Bernoulli drop on observation readings — not a sensor model.
+
+### Efficiency
+Lane, signal and simulation variables are read via **TraCI subscriptions**, which is what
+`D-031` asks for. But `_compute_lane_position_matrix` then calls
+`traci.vehicle.getLanePosition(v)` and `traci.vehicle.getSpeed(v)` **per vehicle, per lane,
+per step**, which is the §7 anti-pattern in the default observation path — the same defect as
+sumo-rl, in a codebase that otherwise gets the transport layer right.
