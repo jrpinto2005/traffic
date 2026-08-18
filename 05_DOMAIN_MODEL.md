@@ -50,10 +50,26 @@ EdgeId  = NewType("EdgeId", int)
 JunctionId = NewType("JunctionId", int)
 IntersectionId = NewType("IntersectionId", int)   # a signalized junction
 MovementId = NewType("MovementId", int)
+LaneConnectionId = NewType("LaneConnectionId", int)
+SignalGroupId = NewType("SignalGroupId", int)
 PhaseId = NewType("PhaseId", int)
 VehicleId = NewType("VehicleId", int)
 SensorId = NewType("SensorId", int)
+
+
+class VehicleType(StrEnum):
+    CAR = "car"
+    MOTORCYCLE = "motorcycle"
 ```
+
+`LaneConnectionId` and `SignalGroupId` were used by fields in §2 before being listed here;
+added 2026-08-18 after T1.2 had to infer them.
+
+`VehicleType` is `{CAR, MOTORCYCLE}` per `00_RESEARCH_SPECIFICATION.md` §17 and `D-013` —
+motorcycles are first-class from the start, and the type-mix parameter exists from day one even
+though M1 runs cars only, so that M4 needs no schema change. Its **dynamics** live in SUMO's
+`vType` and are never interpreted by us (`D-003`); this enum only names the classes that metrics
+must separate (`07_EXPERIMENT_METHODOLOGY.md` §2.4).
 
 **Static structure is frozen; dynamic state is rebuilt each step.** Network types are
 immutable after load. State types are constructed per step from one batched subscription
@@ -183,7 +199,7 @@ class Compatibility(IntEnum):
 @dataclass(frozen=True, slots=True)
 class ConflictMatrix:
     movements: tuple[MovementId, ...]
-    matrix: np.ndarray               # (n, n) of Compatibility; symmetric except PERMITTED
+    matrix: npt.NDArray[np.int8]     # (n, n) of Compatibility; symmetric except PERMITTED
 ```
 
 Three values rather than two, per `D-023`. A permitted left turn is legal *and* conflicting —
@@ -531,6 +547,17 @@ forbidden.
 ## 8. Invariants
 
 Checked at load for static structure, and by property-based tests for dynamic state.
+
+**Who checks what** — added 2026-08-18 after T1.2 correctly refused to guess. The groups below
+are enforced in different places, and `validate_network()` owns only the first two:
+
+| Invariants | Enforced by | Ticket |
+| --- | --- | --- |
+| 1–8, and the `min_green`/`max_green` clauses of 9 | `validate_network()` at load | T1.2 ✅ |
+| 9's `decision_interval_s <= min_green_s` clause | The constraint layer's config validation — `SignalTiming` (§2.7) has no such field; it belongs to the controller layer | T1.7 |
+| 10–12 (dynamic state) | The backend adapter must **uphold** these when projecting SUMO state into `TrueState`; frozen dataclasses cannot self-validate cross-field properties | T1.4 |
+| 13–14 (validity and trip accounting) | The metrics layer's validity gate | T1.8 |
+| 15–16 (demand) | The demand generator, which is where §6's `TurnRatioSpec` and `AttritionSpec` are built | T1.5 |
 
 **Network**
 1. Every lane belongs to exactly one edge.
