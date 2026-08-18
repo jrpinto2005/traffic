@@ -21,7 +21,11 @@ Four combinations were measured:
 3. LibSUMO + polling
 4. LibSUMO + subscriptions
 
-Each combination was run twice; the table reports mean wall-clock seconds per simulated hour, with sample stdev in parentheses.
+Each combination was run **twice**. Two samples do not support a standard deviation, so the
+spread below is indicative only and should not be read as an uncertainty estimate. Independently
+reproduced by the architect on 2026-08-18: TraCI/polling 71.05 s, TraCI/subscriptions 7.30 s,
+LibSUMO/polling 1.49 s, LibSUMO/subscriptions 2.57 s — the same ordering, so the finding below
+is robust despite the thin replication.
 
 ---
 
@@ -38,8 +42,34 @@ Each combination was run twice; the table reports mean wall-clock seconds per si
 
 ## Conclusion
 
-- `D-002` is strongly confirmed: LibSUMO is not just faster, it is dramatically faster on this query pattern.
-- `D-031` is also confirmed: subscriptions cut TraCI wall-clock by about 10× versus naive polling.
-- The fastest measured combination was LibSUMO + polling, but the architectural choice still favours subscriptions because they are the correct seam for later sensor/model work and reduce TraCI overhead by an order of magnitude.
+**`D-002` is strongly confirmed.** LibSUMO is roughly 28× faster than TraCI on the best
+strategy available to each, and roughly 48× faster on the naive one. The seam is worth having.
+
+**`D-031`'s subscription rule is confirmed for TraCI and contradicted for LibSUMO.**
+
+| Transport | Subscriptions vs polling |
+| --- | --- |
+| TraCI | **~10× faster** — subscriptions are essential |
+| LibSUMO | **~1.7× slower** — subscriptions are a net cost |
+
+This is not an anomaly, it is the expected consequence of the mechanism. `D-031` made
+subscriptions an *architectural constraint* on the stated grounds that "round-trips dominate".
+That is a property of TraCI's socket. LibSUMO is an in-process binding with no socket, so
+subscription bookkeeping buys nothing and costs something.
+
+It matters because LibSUMO is the transport intended for **every heavy workload** — the M5
+sweeps and the M7 training runs.
+
+### Escalated, not decided here
+
+An earlier version of this document resolved the tension itself, arguing that subscriptions
+remain right "because they are the correct seam for later sensor/model work". That is an
+architect's decision, and `08_AGENT_HANDOFF_PROTOCOL.md` §8 requires it be escalated rather
+than settled by a spike. It has been escalated; see `D-031` for the amended rule.
+
+The substantive point that survives is narrower than the original rule: what must be preserved
+is **one batched projection per step with no per-object access exposed to other layers**. The
+*mechanism* for batching is transport-specific. Context subscriptions remain the right tool for
+M3's radius queries, which are a different question from per-step whole-state projection.
 
 The benchmark script is `spikes/M0_reference/bench_performance.py`.

@@ -26,16 +26,42 @@ With `--time-to-teleport 300`, SUMO eventually relocates vehicles that have been
 - `tripinfo` shows a lower `timeLoss` than the no-teleport run
 - unfinished vehicles still appear with `arrival="-1.00"` / `vaporized="end"`
 
-### Distortion
+### Distortion — corrected 2026-08-18
 
-Measured over the 1200 s run:
+The original measurement here reported an 11.1% reduction in mean `timeLoss` under the all-red
+stress case. **That number should not be cited.** It was computed over the 224 of 9600 configured
+vehicles that managed to depart — a 2.3% completion rate, in a run this same document declares
+invalid one section later by its own insertion-loss rule. It demonstrates that teleporting
+exists; it does not measure what teleporting does to an experiment we would otherwise believe.
 
-| Setting | Teleports | Departed | Mean `timeLoss` |
-| --- | --- | --- | --- |
-| `--time-to-teleport 300` | 24 | 224 | 1038.12 s |
-| `--time-to-teleport -1` | 0 | 200 | 1168.16 s |
+Re-measured at realistic overload with the **signal running normally**
+(`spikes/M0_verify/verify.py`, section D), sweeping demand on an isolated intersection:
 
-Teleporting reduced mean `timeLoss` by about **11.1%** in this stress case.
+| Demand / approach | Teleports | Finished / loaded | Mean `timeLoss` on | off | Distortion |
+| --- | --- | --- | --- | --- | --- |
+| 1080 veh/h | 0 | 4187 / 4239 | 21.7 s | 21.7 s | 0.0% |
+| 1440 veh/h | 0 | 5570 / 5679 | 26.0 s | 26.0 s | 0.0% |
+| 1800 veh/h | 0 | 6671 / 7128 | 54.6 s | 54.6 s | 0.0% |
+| 2160 veh/h | 0 | 6736 / 8627 | 60.0 s | 60.0 s | 0.0% |
+
+**No teleports occur at any level**, including one where 22% of configured demand never enters.
+
+The reason is structural: teleporting requires a vehicle to be stuck *inside* the network. On an
+isolated intersection with ~190 m approaches, a queue that exceeds the approach spills out of
+the network entirely, so the overload is absorbed as **insertion loss** before any vehicle can
+be trapped long enough to teleport.
+
+### What this changes
+
+**Insertion loss, not teleporting, is the dominant validity threat at M1.** At 2160 veh/h the
+applied demand was 78% of the configured demand, and mean `timeLoss` rose only from 21.7 s to
+60.0 s — because the vehicles that would have suffered the worst delay never entered at all.
+That is precisely the bias `D-008` exists to catch, and it happens silently with teleporting
+already disabled.
+
+Teleporting becomes the dominant threat at **M5**, where a corridor or grid can trap a vehicle
+between two signals with nowhere to spill. The check stays mandatory from M1 — it is nearly
+free — but M1 results will be threatened by the insertion counter, not the teleport counter.
 
 ### Detection rule
 
@@ -97,5 +123,10 @@ declare gridlock. Teleport counts are a corroborating signal, not the primary de
 
 ## 4. Decision status
 
-- `D-008` is confirmed and strengthened: teleporting must be disabled and counted, not merely tolerated.
-- The footguns are reproducible, and the detection rule belongs in T1.8.
+- `D-008` is confirmed, and its **priority is reordered**: on an isolated intersection the
+  insertion-loss check is the one that will actually fire, and the teleport check is insurance
+  that starts paying at M5. Both stay mandatory from M1.
+- The all-red stress case is retained above as a demonstration that the failure modes are real,
+  but its numbers are not evidence about any regime we intend to run.
+- The detection rules belong in T1.8, and the insertion-loss threshold deserves a real value
+  rather than a placeholder — 22% loss produced a plausible-looking result.

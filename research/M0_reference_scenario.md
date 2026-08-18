@@ -9,7 +9,10 @@
 The scenario lives in `spikes/M0_reference/` and is intentionally small:
 
 - `reference.nod.xml` — four outer nodes plus the signalized junction `j1`
-- `reference.edg.xml` — eight directed edges, 200 m approaches, 50 km/h
+- `reference.edg.xml` — eight directed edges, 50 km/h, nodes placed 200 m from the junction.
+  **The resulting lanes are 189.6 m, not 200 m** — junction geometry consumes the remainder.
+  Anything computing saturation flow, queue capacity or free-flow travel time must read the
+  built lane length from the network, never the nominal node spacing.
 - `reference.con.xml` — eight controlled connections, two per approach
 - `reference.tll.xml` — one static program with two green phases (NS and EW) plus explicit yellow transitions
 - `reference.rou.xml` — constant demand from all four approaches
@@ -55,22 +58,52 @@ For the reference spike, the static program in `reference.tll.xml` is enough. Mi
 
 ## 4. Conflict representation and D-023
 
-SUMO exposes connection-level metadata that is enough to seed the project's three-valued conflict matrix:
+**The mechanism given in the first pass was wrong, and the claim was never tested. Corrected
+2026-08-18.**
 
-- `has priority`
-- `is opened`
-- `has approaching foe`
-- current state
-- direction
-- length
+The original text proposed seeding the matrix from `traci.lane.getLinks()` metadata —
+`has priority`, `is opened`, `has approaching foe`. Two of those are **runtime** values that
+depend on the current signal state and the vehicles currently present. Seeding a *static*
+conflict matrix from dynamic link state is a category error. The claim was also asserted
+without a test, on a scenario that deliberately contains no permitted turns — the one case
+that the three-valued distinction exists for.
 
-In plain-connections terms, that is enough to distinguish:
+### What actually works
 
-- `compatible` movements
-- `conflicting` movements
-- `permitted` movements where one yields
+Verified on a probe network with a netconvert-inferred permissive left
+(`spikes/M0_verify/verify.py`, section C). The conflict data is **static, in the net file**:
 
-This scenario does not use permitted turns; it uses protected-only movements. But the schema can already be seeded from SUMO's junction conflict data, and the three-valued matrix in `D-023` remains the right abstraction.
+```xml
+<junction id="c" type="traffic_light">
+  <request index="3" response="1000011010000000" foes="1110011011100000"/>
+```
+
+- **`foes`** — bitstring over link indices: which links physically conflict with this one.
+  Pure geometry, independent of signals.
+- **`response`** — of those foes, the ones this link must **yield** to.
+
+That yields the three-valued relation directly:
+
+| `foes[i]` | `response[i]` | Relation |
+| --- | --- | --- |
+| 0 | — | `COMPATIBLE` |
+| 1 | 1 | `PERMITTED` — this link yields to *i* |
+| 1 | 0 | `CONFLICTING` — may not be green together |
+
+Protected versus permissive is carried separately, in the **case** of the phase state string:
+
+```
+GGGgrrrrGGGgrrrr    G = protected green, g = permissive green (yields)
+```
+
+The fourth link in each group is the permissive left.
+
+### Consequence for T1.3
+
+`D-023` is confirmed as the right abstraction, but T1.3 must read `<request>` `foes` and
+`response` from the built network plus the `G`/`g` case from the TLS program. It must **not**
+use `getLinks()` runtime state. This scenario still contains no permitted turn, so T1.3's
+validation needs a network that does — the probe in `spikes/M0_verify/` is one.
 
 ---
 

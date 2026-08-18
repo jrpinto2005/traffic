@@ -308,6 +308,22 @@ specifically.
    gridlocked rather than reporting its metrics as valid.
 4. Records all three counters in the run manifest, always, even when zero.
 
+**Priority reordered 2026-08-18 after T0.4 was re-measured.** All three checks stay mandatory
+from M1, but they do not carry equal weight at equal times:
+
+- **Insertion loss is the threat that will actually fire at M1.** Swept on an isolated
+  intersection with the signal running normally, demand at 2160 veh/h per approach produced
+  **zero teleports** while 22% of configured demand never entered — and mean time loss rose only
+  from 21.7 s to 60.0 s, because the vehicles that would have suffered worst never departed.
+  A plausible-looking result over 78% of the intended demand is exactly the silent invalidation
+  this decision exists to prevent.
+- **Teleporting starts mattering at M5.** It requires a vehicle stuck *inside* the network; on an
+  isolated intersection with ~190 m approaches, an over-capacity queue spills out of the network
+  before anything can be trapped. A corridor or grid removes that escape.
+
+The insertion-loss threshold therefore needs a justified value rather than a placeholder, and
+T1.8 should treat it as the primary gate.
+
 **Rationale.** SUMO teleports stuck vehicles by default after 300s. Under congestion — the
 regime where adaptive control is supposed to prove itself — this silently deletes the
 congestion being measured, and deletes *more* of it for worse controllers. A default-settings
@@ -1034,6 +1050,31 @@ that geometry be data rather than hard-coded assumption.
    so that no migration is needed, but M1 scenarios use protected turns only. Permitted turns
    are introduced when a scenario needs them, most likely at M5.
 
+**Seeding mechanism, verified 2026-08-18 (T0.2, corrected).** The matrix is seeded from
+**static net-file data**, not from runtime link state. Each junction carries
+`<request index=N response=... foes=...>` rows: `foes` is a bitstring of which link indices
+physically conflict with this one, and `response` is which of those foes this link must yield
+to. That is exactly the three-valued relation:
+
+| `foes[i]` | `response[i]` | Relation |
+| --- | --- | --- |
+| 0 | — | `COMPATIBLE` |
+| 1 | 1 | `PERMITTED` — this link yields to *i* |
+| 1 | 0 | `CONFLICTING` — may not be green together |
+
+Protected versus permissive is carried separately, by the **case** of the phase state character:
+`G` is protected green, `g` is permissive green that yields (e.g. `GGGgrrrrGGGgrrrr`).
+
+T0.2's first pass proposed seeding from `traci.lane.getLinks()` metadata — `is opened`,
+`has approaching foe` — which are **runtime** values dependent on current signal state and
+current traffic. Seeding a static matrix from those is a category error. The claim was also
+asserted without a test, on a scenario deliberately containing no permitted turns, which is the
+one case the three-valued distinction exists for.
+
+**Binding on T1.3:** read `<request>` `foes`/`response` from the built network plus the `G`/`g`
+case from the TLS program. Do **not** use `getLinks()` runtime state. Validate against a network
+that contains a permissive turn — `spikes/M0_verify/` builds one.
+
 **Revisit trigger.** A junction geometry appears that the three-valued matrix cannot express;
 or automatic phase enumeration becomes necessary for large imported networks at M8.
 
@@ -1071,6 +1112,17 @@ condition is therefore an intentional departure, and its consequence is larger t
 because Max-Pressure is defined over queue counts, **a different queue definition is a
 different controller.** RESCO's Max-Pressure and ours are not the same algorithm. Any
 comparison against their published numbers must say so.
+
+**Spike result, 2026-08-18 (T0.5, re-verified).** SUMO's `getLastStepHaltingNumber` applies a
+0.1 m/s speed threshold with **no duration condition**, so `D-025`'s 1 s condition must be
+computed by us — confirmed, decision unchanged.
+
+**But lane-area jam length is a different measure, not a richer view of the same one.** Measured
+over 600 s with the signal running, `getJamLengthVehicle` disagreed with the halting counter on
+230 of 600 steps, always higher, because SUMO's jam criterion admits slow-moving vehicles that a
+strict 0.1 m/s threshold excludes. They coincide only in a saturated queue. **`getJamLengthMeters`
+is therefore not a drop-in source for the secondary metres metric**, and which source M4 adopts is
+left open rather than assumed.
 
 **Spike required before implementation.** Confirm what SUMO's native halting counters
 (`getLastStepHaltingNumber` and the equivalent lane-area detector output) actually measure —
@@ -1264,7 +1316,7 @@ genuinely matters. The instruction is right that it cannot be an afterthought.
 | --- | --- | --- |
 | **Transport abstraction for LibSUMO** | ~10× on the simulation call path | `D-002`, settled |
 | **Process-level parallelism as the runner's native shape** | Near-linear in cores. The single largest lever. | New, below |
-| **Batched/subscribed backend queries, never per-object polling** | Often several× on TraCI. The classic SUMO performance mistake. | New, below |
+| **One batched projection per step; no per-object access exposed to other layers** | ~10× on TraCI. Neutral-to-negative on LibSUMO — see the amendment. | Amended 2026-08-18 |
 | **Periodic decision interval** | Proportional to Δt on controller cost | `D-020`, settled |
 | **Columnar results storage; no per-step Python object churn in the hot loop** | Large at sweep scale | `D-004`, settled |
 | **Traces opt-in, off by default** | Removes I/O from batch runs entirely | `D-009`, settled |
@@ -1284,12 +1336,44 @@ of 5 controllers × 6 demand levels × 50 seeds × 6 network sizes is ~9,000 run
 plausible ~36 s each, that is ~90 hours serially, ~11 hours across 8 cores, ~2 hours with
 LibSUMO on top. No amount of micro-optimization in the metrics code reaches that.
 
-**Query batching.** The dominant cost in TraCI is round-trips, not computation. Per-step
-per-vehicle polling is the standard way to make a SUMO project ten times slower than it needs
-to be. The adapter therefore uses **variable subscriptions and batched context queries** as
-its only state-reading mechanism, and per-object polling in the step loop is a review defect,
-not a style preference. This is an architectural constraint on the adapter, not an
-optimization.
+**Query batching — amended 2026-08-18 after T0.3, which measured the opposite of what this
+rule assumed for the transport we will actually use at scale.**
+
+The original rule mandated variable subscriptions as the adapter's only state-reading
+mechanism, reasoning that "the dominant cost in TraCI is round-trips". That reasoning is sound
+and the measurement confirms it — **for TraCI**. It does not transfer:
+
+| Transport | Subscriptions vs per-object polling | Measured |
+| --- | --- | --- |
+| TraCI | **~10× faster** | 7.30 s vs 71.05 s per simulated hour |
+| LibSUMO | **~1.7× slower** | 2.57 s vs 1.49 s per simulated hour |
+
+Reproduced independently by the architect; both passes agree on the ordering. The mechanism is
+obvious in hindsight: LibSUMO is an in-process binding with no socket, so subscription
+bookkeeping is pure overhead. And LibSUMO is the transport intended for **every heavy
+workload** — the M5 sweeps and M7 training — so the rule as written would have imposed a ~70%
+tax exactly where throughput matters most.
+
+**The amended rule separates the invariant from the mechanism.**
+
+*Architectural, binding, unchanged in force:* the adapter performs **one batched projection per
+simulation step** and exposes **no per-object query method** to any other layer. This is what
+keeps per-object access from leaking into sensors, metrics and controllers, where it would be
+both slow and impossible to remove later. It remains a review defect to violate it
+(`08_AGENT_HANDOFF_PROTOCOL.md` §6 item 9).
+
+*Mechanism, transport-specific, chosen by measurement:* **how** the adapter batches is an
+implementation detail behind the `D-002` seam. Subscriptions under TraCI; direct batched
+getters under LibSUMO. T1.4 implements both and its acceptance criterion — byte-identical
+`TrueState` across transports — already guarantees they cannot diverge in behaviour.
+
+*Unaffected:* context subscriptions around a junction remain the right tool for M3's
+radius-limited sensor queries. That is a different question from per-step whole-state
+projection, and T0.3 measured only the latter.
+
+**Note on how this was caught.** T0.3 found the contradiction and resolved it in its own
+write-up rather than escalating. The finding survived only because the write-up was audited.
+`08_AGENT_HANDOFF_PROTOCOL.md` §8 exists for exactly this case.
 
 #### Code-level efficiency — a standing measured practice
 
@@ -1413,6 +1497,7 @@ a hard error rather than undefined behaviour.
 | Version | Change |
 | --- | --- |
 | 1.0 | Initial register. `D-005`, `D-016`, `D-019` settled from owner decisions; `D-001`–`D-018` proposed by the architect pending ratification; `D-020`–`D-030` open or deferred. |
+| 1.5 | **M0 audit and corrections, 2026-08-18.** An audit of the first-pass M0 write-ups found four defects, each re-verified before correcting. `D-031`'s subscription mandate **amended**: measured ~10× faster on TraCI but ~1.7× *slower* on LibSUMO, the transport intended for all heavy workloads; the invariant (one batched projection per step, no per-object access exposed) is kept, the mechanism becomes transport-specific. T0.3 had argued this away in its own write-up instead of escalating. `D-008` **priority reordered**: insertion loss, not teleporting, is the M1 threat — a demand sweep produced zero teleports while 22% of demand failed to insert. `D-025`: lane-area jam length is a **different measure** from the halting counter (disagreed on 230/600 steps), so the metres metric is reopened. `D-023`: the conflict matrix is seeded from static `<request>` `foes`/`response` plus the `G`/`g` case, **not** from runtime `getLinks()` state as first documented. |
 | 1.4 | **M0 findings applied, 2026-08-18.** `D-004` amended twice from T0.0: SUMO installs as the `eclipse-sumo` PyPI distribution pinned in `uv.lock` rather than a system package, and **pyarrow is excluded** after a reproduced ABI collision with libsumo that would have broken T1.11's runner on every run. From T0.1: `D-013`'s "11–13%" claim qualified (it is a synthetic-grid, best-of-100, unpaired-seed figure, and the same paper concludes MPLight diverges on realistic networks); `D-025` records the 1 s halting condition as a deliberate divergence from all surveyed prior art, with the consequence that RESCO's Max-Pressure and ours are not the same algorithm; `D-020` gains a legal-action mask adopted from PyTSC. |
 | 1.3 | **D-022 confirmed, 2026-08-18.** Owner confirmed the arrivals model, turn-ratio routing, and routing policy as formalised; no changes required. This unblocked `05_DOMAIN_MODEL.md`. Documents `05`, `06`, `07`, `08` written. `09_GLOSSARY.md` dropped — the canonical ↔ SUMO mapping lives in `05_DOMAIN_MODEL.md` §7, and a separate glossary would be a second place to drift. |
 | 1.2 | **Second ratification pass, 2026-08-14.** `D-010` ratified after expansion. `D-031` ratified after the owner clarified that "efficiency" meant code efficiency and profiling; the entry was restructured from two categories to three, adding **code-level efficiency as a standing measured practice** (profiling harness, per-milestone hot-path report, performance regression guard, and the rule that an optimization without a before/after number is not accepted). **M1 is now fully unblocked.** |
