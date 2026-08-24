@@ -58,5 +58,18 @@ warn_redundant_casts = true
 module = "traffic_lab.domain.*"
 strict = true
 
+# Strict on the backend too: it is the only package that touches SUMO, and
+# `06_ARCHITECTURE.md` SS5 makes it the most correctness-sensitive code in M1.
+[[tool.mypy.overrides]]
+module = "traffic_lab.backend.*"
+strict = true
+
+# traci, libsumo and sumolib ship no type information. Only the backend package
+# may import them (`06_ARCHITECTURE.md` SS10 rule 2), so the exemption is
+# confined to those three distributions rather than applied project-wide.
+[[tool.mypy.overrides]]
+module = ["traci.*", "traci", "libsumo.*", "libsumo", "sumolib.*", "sumolib"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

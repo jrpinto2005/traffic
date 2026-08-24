@@ -26,7 +26,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Transport = Literal["traci", "libsumo"]
+TransportName = Literal["traci", "libsumo"]
 
 #: Speed below which SUMO — and therefore `VehicleState.is_halting` (D-025,
 #: `05_DOMAIN_MODEL.md` §8 invariant 11) — considers a vehicle halting.
@@ -48,7 +48,7 @@ class BackendConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    transport: Transport = Field(
+    transport: TransportName = Field(
         default="traci",
         description="D-002. TraCI for development and anything with a GUI; LibSUMO for "
         "batch and training workloads. LibSUMO holds one simulation per process.",

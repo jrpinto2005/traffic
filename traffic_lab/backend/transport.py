@@ -17,9 +17,9 @@ measurement, and the measurements disagree by transport
 | LibSUMO | 2.57 s | **1.49 s** |
 
 TraCI pays a socket round-trip per call, so subscriptions — whose results ride
-along with the step response — are ~10× faster. LibSUMO is an in-process
+along with the step response — are ~10x faster. LibSUMO is an in-process
 binding with no socket, so subscription bookkeeping is pure overhead and direct
-getters win by ~1.7×. LibSUMO is the transport intended for every heavy
+getters win by ~1.7x. LibSUMO is the transport intended for every heavy
 workload, so mandating subscriptions everywhere would have taxed exactly the
 runs that matter. Hence: subscriptions under TraCI, direct batched getters
 under LibSUMO.
@@ -108,7 +108,11 @@ class Transport(Protocol):
 
     def traffic_light_ids(self) -> tuple[str, ...]: ...
 
+    def vehicle_type_ids(self) -> tuple[str, ...]: ...
+
     def vehicle_class(self, type_id: str) -> str: ...
+
+    def vehicle_accel_mps2(self, type_id: str) -> float: ...
 
     def option(self, name: str) -> str: ...
 
@@ -156,8 +160,14 @@ class _SumoTransport:
     def traffic_light_ids(self) -> tuple[str, ...]:
         return tuple(sorted(self._api.trafficlight.getIDList()))
 
+    def vehicle_type_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self._api.vehicletype.getIDList()))
+
     def vehicle_class(self, type_id: str) -> str:
         return str(self._api.vehicletype.getVehicleClass(type_id))
+
+    def vehicle_accel_mps2(self, type_id: str) -> float:
+        return float(self._api.vehicletype.getAccel(type_id))
 
     def option(self, name: str) -> str:
         return str(self._api.simulation.getOption(name))
@@ -212,7 +222,7 @@ _SIMULATION_VARS = (
 class TraciTransport(_SumoTransport):
     """Subscriptions, registered once and read whole.
 
-    Measured ~10× faster than per-object polling on TraCI, because every
+    Measured ~10x faster than per-object polling on TraCI, because every
     subscription result arrives with the step response rather than costing its
     own socket round-trip.
 
@@ -285,7 +295,7 @@ class TraciTransport(_SumoTransport):
 class LibsumoTransport(_SumoTransport):
     """Direct getters, batched into one `fetch()`.
 
-    Measured ~1.7× *faster* than subscriptions here: LibSUMO is in-process, so
+    Measured ~1.7x *faster* than subscriptions here: LibSUMO is in-process, so
     there is no round-trip for a subscription to amortise and the bookkeeping is
     a net cost. The call count therefore scales with the vehicle population by
     design — but it is still one batched projection per step, and no per-object

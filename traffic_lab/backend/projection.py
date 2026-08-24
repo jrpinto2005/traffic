@@ -4,7 +4,7 @@ Implements D-003 (projection, not re-implementation: nothing here models
 traffic dynamics), D-008 (`RunCounters`, gridlock detection), D-022 (three-way
 trip accounting as first-class state), and D-025 (the queue definition).
 
-**This module upholds `05_DOMAIN_MODEL.md` §8 invariants 10–12**, which the
+**This module upholds `05_DOMAIN_MODEL.md` §8 invariants 10-12**, which the
 ownership table assigns to T1.4 because `traffic_lab.domain` uses frozen
 dataclasses that cannot self-validate cross-field properties:
 
@@ -28,6 +28,7 @@ isolate the part that actually differs.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from traffic_lab.backend.config import (
     HALTING_SPEED_MPS,
@@ -54,15 +55,13 @@ from traffic_lab.domain.state import (
 #: M1 cars only while keeping the type-mix parameter present from day one, and
 #: `05_DOMAIN_MODEL.md` fixes the canonical set at exactly these two. Anything
 #: else is a hard failure rather than a silent coercion to `CAR`.
-_VEHICLE_CLASS_TO_TYPE = {
+VEHICLE_CLASS_TO_TYPE = {
     "passenger": VehicleType.CAR,
     "motorcycle": VehicleType.MOTORCYCLE,
 }
 
-#: Tolerance, in metres, when deciding whether an arriving vehicle ran off the
-#: end of its final lane (a sink arrival) or was removed part-way along it (a
-#: mid-link arrival, D-022's attrition). Compared against the distance the
-#: vehicle could still have covered in one step at its last observed speed.
+#: Numerical slack, in metres, on the arrival test below. Small: the test's real
+#: work is done by the kinematic bound, not by this.
 _ARRIVAL_TOLERANCE_M = 0.1
 
 
@@ -117,6 +116,7 @@ class Projector:
         vehicle_types: dict[str, VehicleType],
         step_length_s: float,
         gridlock_steps: int,
+        max_accel_mps2: float,
     ) -> None:
         self._lane_sumo_ids = lane_sumo_ids
         self._lane_lengths_m = lane_lengths_m
@@ -128,6 +128,9 @@ class Projector:
         self._vehicle_types = vehicle_types
         self._step_length_s = step_length_s
         self._gridlock_steps = gridlock_steps
+        # Furthest any declared vehicle type can advance in one step from a
+        # standstill-relative speed, used by the arrival test below.
+        self._max_advance_bonus_m = 0.5 * max_accel_mps2 * step_length_s * step_length_s
 
         # Insertion-ordered, and `VehicleId`s are assigned in increasing order,
         # so iterating this dict yields vehicles in canonical-id order without a
@@ -144,7 +147,7 @@ class Projector:
         self._admit_new_vehicles(raw)
 
         vehicles = self._project_vehicles(raw, time_s)
-        lanes = self._project_lanes(vehicles)
+        lanes = self._project_lanes(vehicles, time_s)
         signals = self._project_signals(raw, time_s)
         counters = self._project_counters(raw, vehicles)
 
@@ -157,20 +160,14 @@ class Projector:
         )
 
     def _retire_departed_vehicles(self, raw: RawStep) -> None:
-        """Drop records for vehicles no longer present, classifying arrivals (D-022)."""
-        present = raw.vehicles
-        if len(present) == len(self._active):
-            # Fast path: nothing left. Checked before the scan because on most
-            # steps of most runs nothing does.
-            gone: list[str] = []
-            for sumo_id in self._active:
-                if sumo_id not in present:
-                    gone.append(sumo_id)
-                    break
-            if not gone:
-                self._classify_arrivals(raw.arrived_ids)
-                return
+        """Drop records for vehicles no longer present, classifying arrivals (D-022).
 
+        `raw.vehicles` is authoritative for who is in the network; the arrived
+        list only says *why* someone left. Reconciling against the population
+        rather than against the arrival list means a vehicle that leaves by any
+        other route still leaves our books, instead of accumulating as a ghost.
+        """
+        present = raw.vehicles
         arrived = set(raw.arrived_ids)
         for sumo_id in [sid for sid in self._active if sid not in present]:
             record = self._active.pop(sumo_id)
@@ -183,30 +180,38 @@ class Projector:
         # total, which is what makes §8 invariant 14 checkable by T1.8.
         self._counters.arrived_at_sink += len(arrived)
 
-    def _classify_arrivals(self, arrived_ids: tuple[str, ...]) -> None:
-        for sumo_id in arrived_ids:
-            record = self._active.pop(sumo_id, None)
-            if record is None:
-                self._counters.arrived_at_sink += 1
-            else:
-                self._classify_arrival(record)
-
     def _classify_arrival(self, record: _VehicleRecord) -> None:
         """Split one arrival into D-022's served-at-sink and served-mid-link legs.
 
         A vehicle that ran off the end of its final lane reached a boundary sink.
         One removed part-way along it was removed by an `arrivalPos` — D-022's
-        mid-link attrition. The test is whether the vehicle was close enough to
-        the lane end that one more step at its last speed would have carried it
-        past; `--tripinfo-output.write-unfinished` gives T1.8 the authoritative
-        per-vehicle `arrivalPos` to cross-check this against at run end.
+        mid-link attrition.
+
+        An arrival is only observable *after* the vehicle has gone, so the test
+        is on where it was when last seen: could it have covered the remaining
+        distance in the one unobserved step? The bound is kinematic —
+        `v·Δt + ½·a·Δt²` at the fastest acceleration any declared vehicle type
+        can manage — because a constant-speed bound is *not* an upper bound and
+        misclassifies accelerating vehicles as attrition. Measured on the M0
+        reference scenario, which contains no attrition at all: the
+        constant-speed form reported 8 spurious mid-link arrivals in 400 steps,
+        the kinematic form reports none.
+
+        The residual failure mode is an `arrivalPos` set within one step's
+        travel of the lane end, which is a sink arrival in all but name.
+        `--tripinfo-output.write-unfinished` gives T1.8 the authoritative
+        per-vehicle `arrivalPos` to audit this against at run end.
         """
         lane = self._lane_index.get(record.last_lane_id)
         if lane is None:
             self._counters.arrived_at_sink += 1
             return
         remaining_m = self._lane_lengths_m[lane] - record.last_lane_position_m
-        reach_m = record.last_speed_mps * self._step_length_s + _ARRIVAL_TOLERANCE_M
+        reach_m = (
+            record.last_speed_mps * self._step_length_s
+            + self._max_advance_bonus_m
+            + _ARRIVAL_TOLERANCE_M
+        )
         if remaining_m <= reach_m:
             self._counters.arrived_at_sink += 1
         else:
@@ -238,7 +243,7 @@ class Projector:
         if vehicle_type is None:
             raise BackendStartupError(
                 f"vehicle type {type_id!r} has a SUMO vehicle class outside the canonical "
-                f"ontology {sorted(_VEHICLE_CLASS_TO_TYPE)}; `VehicleType` "
+                f"ontology {sorted(VEHICLE_CLASS_TO_TYPE)}; `VehicleType` "
                 f"(`05_DOMAIN_MODEL.md` §2) has no value for it"
             )
         return vehicle_type
@@ -289,7 +294,9 @@ class Projector:
             )
         return lane
 
-    def _project_lanes(self, vehicles: tuple[VehicleState, ...]) -> tuple[LaneState, ...]:
+    def _project_lanes(
+        self, vehicles: tuple[VehicleState, ...], time_s: float
+    ) -> tuple[LaneState, ...]:
         """Aggregate per-lane state from the projected vehicles.
 
         Derived from `vehicles` rather than read from SUMO's lane getters, for
@@ -310,29 +317,41 @@ class Projector:
             lane = vehicle.lane
             vehicle_counts[lane] += 1
             speed_sums[lane] += vehicle.speed_mps
-            # Invariant 12: exactly the vehicles halting for >= 1 s.
-            if vehicle.halting_since_s is not None and (
-                vehicle.halting_since_s <= _queue_threshold(vehicle)
+            # Invariant 12: exactly the vehicles halting for >= 1 s. Both
+            # operands come from SUMO's own clock, so the comparison is exact
+            # rather than tolerance-based, and identical under either transport.
+            if (
+                vehicle.halting_since_s is not None
+                and time_s - vehicle.halting_since_s >= QUEUE_MIN_HALTING_S
             ):
                 queue_counts[lane] += 1
                 tail = queue_tail_m[lane]
                 if tail is None or vehicle.position_on_lane_m < tail:
                     queue_tail_m[lane] = vehicle.position_on_lane_m
 
-        return tuple(
-            LaneState(
-                lane=LaneId(i),
-                queue_count=queue_counts[i],
-                queue_length_m=(
-                    0.0
-                    if queue_tail_m[i] is None
-                    else self._lane_lengths_m[i] - float(queue_tail_m[i] or 0.0)
-                ),
-                vehicle_count=vehicle_counts[i],
-                mean_speed_mps=(speed_sums[i] / vehicle_counts[i] if vehicle_counts[i] else 0.0),
+        lanes: list[LaneState] = []
+        for i in range(lane_count):
+            tail_m = queue_tail_m[i]
+            lanes.append(
+                LaneState(
+                    lane=LaneId(i),
+                    queue_count=queue_counts[i],
+                    # Stop line back to the furthest-upstream queued vehicle's
+                    # front bumper. Deliberately assumption-free: it adds no
+                    # vehicle length and no minimum gap, because
+                    # `research/M0_sumo_semantics.md` §1.4 leaves the metre-based
+                    # queue measure open until M4 and those two assumptions are
+                    # exactly what the open question is about. Same D-025
+                    # membership rule as `queue_count`, so the two agree on
+                    # which vehicles are in the queue.
+                    queue_length_m=(0.0 if tail_m is None else self._lane_lengths_m[i] - tail_m),
+                    vehicle_count=vehicle_counts[i],
+                    mean_speed_mps=(
+                        speed_sums[i] / vehicle_counts[i] if vehicle_counts[i] else 0.0
+                    ),
+                )
             )
-            for i in range(lane_count)
-        )
+        return tuple(lanes)
 
     def _project_signals(self, raw: RawStep, time_s: float) -> tuple[SignalState, ...]:
         signals: list[SignalState] = []
@@ -354,9 +373,7 @@ class Projector:
             )
         return tuple(signals)
 
-    def _project_counters(
-        self, raw: RawStep, vehicles: tuple[VehicleState, ...]
-    ) -> RunCounters:
+    def _project_counters(self, raw: RawStep, vehicles: tuple[VehicleState, ...]) -> RunCounters:
         counters = self._counters
         counters.teleports += raw.teleports_ending
         counters.loaded += raw.loaded
@@ -390,7 +407,7 @@ class Projector:
 
     # --- Snapshot support (D-032; mechanism only, policy is T1.6) ------------
 
-    def state_dict(self) -> dict[str, object]:
+    def state_dict(self) -> dict[str, Any]:
         """Serialise the bookkeeping a SUMO state file does not carry.
 
         SUMO's `--save-state` restores the simulation, not our halting timers,
@@ -423,10 +440,10 @@ class Projector:
             },
         }
 
-    def load_state_dict(self, payload: dict[str, object]) -> None:
-        counters = dict(payload["counters"])  # type: ignore[call-overload]
-        self._counters = _CumulativeCounters(**counters)
-        self._next_vehicle_id = int(payload["next_vehicle_id"])  # type: ignore[call-overload]
+    def load_state_dict(self, payload: dict[str, Any]) -> None:
+        """Restore what `state_dict()` saved, replacing the current bookkeeping."""
+        self._counters = _CumulativeCounters(**payload["counters"])
+        self._next_vehicle_id = int(payload["next_vehicle_id"])
         self._active = {
             sumo_id: _VehicleRecord(
                 canonical_id=VehicleId(int(fields[0])),
@@ -437,16 +454,5 @@ class Projector:
                 last_lane_position_m=float(fields[5]),
                 last_speed_mps=float(fields[6]),
             )
-            for sumo_id, fields in payload["vehicles"].items()  # type: ignore[union-attr]
+            for sumo_id, fields in payload["vehicles"].items()
         }
-
-
-def _queue_threshold(vehicle: VehicleState) -> float:
-    """The latest `halting_since_s` that still counts as queued at this instant.
-
-    Factored out only to keep the membership test in `_project_lanes` readable:
-    a vehicle is queued when it has been halting for at least
-    `QUEUE_MIN_HALTING_S`, i.e. when it started halting at or before
-    `now - QUEUE_MIN_HALTING_S`.
-    """
-    raise NotImplementedError
