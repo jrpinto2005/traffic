@@ -53,15 +53,15 @@ def network_with_a_conflicting_phase() -> Network:
     return dataclasses.replace(network, signalized_intersections=(intersection,))
 
 
-def timed_network(
+def with_timing(
+    network: Network,
     *,
     min_green_s: float = DEFAULT_MIN_GREEN_S,
     max_green_s: float = DEFAULT_MAX_GREEN_S,
     yellow_s: float = DEFAULT_YELLOW_S,
     all_red_s: float = DEFAULT_ALL_RED_S,
 ) -> Network:
-    """The fixture network with its one intersection's `SignalTiming` replaced."""
-    network = build_valid_network()
+    """`network` with its one intersection's `SignalTiming` replaced."""
     intersection = dataclasses.replace(
         network.signalized_intersections[0],
         timing=SignalTiming(
@@ -84,17 +84,23 @@ def build_layer(
     step_length_s: float = 1.0,
     network: Network | None = None,
 ) -> ConstraintLayer:
-    if network is None:
-        network = timed_network(
-            min_green_s=min_green_s,
-            max_green_s=max_green_s,
-            yellow_s=yellow_s,
-            all_red_s=all_red_s,
-        )
+    """A layer over `network` (the standard fixture by default) at the given timings.
+
+    The timings are applied whether or not `network` was supplied, so a caller
+    varying both -- the property test -- does not have to rebuild the network
+    itself.
+    """
+    timed = with_timing(
+        build_valid_network() if network is None else network,
+        min_green_s=min_green_s,
+        max_green_s=max_green_s,
+        yellow_s=yellow_s,
+        all_red_s=all_red_s,
+    )
     config = ConstraintLayerConfig(
         decision_interval_s=decision_interval_s, step_length_s=step_length_s
     )
-    return ConstraintLayer(network, config)
+    return ConstraintLayer(timed, config)
 
 
 def stage_of(layer: ConstraintLayer, intersection_id: IntersectionId = INTERSECTION) -> SignalStage:
