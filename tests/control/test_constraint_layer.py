@@ -538,3 +538,64 @@ def test_requesting_the_committed_phase_mid_transition_is_held() -> None:
     assert layer.submit(request(PHASE_NS), 11.0).outcome is RequestOutcome.DEFERRED
 
 
+# --- The legal-action mask (D-020, adopted from PyTSC via T0.1) --------------
+
+
+def test_allowed_phases_is_every_legal_phase_when_actionable() -> None:
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0)
+    layer.step(10.0)
+
+    assert layer.actionable(INTERSECTION)
+    assert layer.allowed_phases(INTERSECTION) == frozenset({PHASE_NS, PHASE_EW})
+
+
+def test_allowed_phases_excludes_a_conflicting_phase() -> None:
+    layer = build_layer(network=network_with_a_conflicting_phase(), decision_interval_s=1.0)
+    layer.step(30.0)
+
+    assert PHASE_CONFLICTING not in layer.allowed_phases(INTERSECTION)
+
+
+def test_allowed_phases_is_the_active_phase_alone_when_blocked() -> None:
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0)
+    layer.step(2.0)
+
+    assert not layer.actionable(INTERSECTION)
+    assert layer.allowed_phases(INTERSECTION) == frozenset({PHASE_NS})
+
+
+def test_allowed_phases_is_never_empty() -> None:
+    """A masked action space with no legal action is a stuck policy, not a
+    constrained one."""
+    layer = build_layer(min_green_s=5.0, max_green_s=12.0, decision_interval_s=1.0)
+
+    for now_s in [i * 0.5 for i in range(200)]:
+        layer.step(now_s)
+        assert layer.allowed_phases(INTERSECTION)
+
+
+def test_a_phase_in_the_mask_is_never_refused() -> None:
+    """The mask's contract: what it offers, `submit()` accepts.
+
+    This is what lets a controller avoid making an illegal request rather than
+    being refused after the fact (D-020).
+
+    One request per decision point, which is what a controller does: the mask
+    says which single action would be accepted now, and acting on one of them
+    changes the state the rest were computed against.
+    """
+    layer = build_layer(min_green_s=5.0, max_green_s=25.0, decision_interval_s=1.0)
+
+    for step_index, now_s in enumerate(float(i) for i in range(400)):
+        layer.step(now_s)
+        mask = sorted(layer.allowed_phases(INTERSECTION))
+        assert mask, "the mask must never be empty"
+        phase = mask[step_index % len(mask)]
+        outcome = layer.submit(request(phase), now_s).outcome
+        assert outcome in (RequestOutcome.GRANTED, RequestOutcome.HELD), (
+            f"phase {phase} was offered by the mask at {now_s} s but got {outcome}"
+        )
+
+    assert layer.counters.rejected == 0
+    assert layer.counters.deferred == 0
+    assert layer.counters.granted > 0

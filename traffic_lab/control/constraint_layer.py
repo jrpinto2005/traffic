@@ -387,6 +387,34 @@ class ConstraintLayer:
         self._decisions[key] = result
         return result
 
+    def allowed_phases(self, intersection_id: IntersectionId) -> frozenset[PhaseId]:
+        """The phases `submit()` would accept right now -- the legal-action mask.
+
+        Adopted from PyTSC via T0.1 and added to D-020 on 2026-08-18. It
+        generalises `actionable()` from "can I act" to "which actions are
+        legal", and it leaks nothing: it is derived from the controller's own
+        signal state (which `05_DOMAIN_MODEL.md` SS4.2 says a controller knows
+        exactly) plus the static conflict matrix. No `TrueState` is involved.
+
+        "Accept" means GRANTED or HELD -- the outcomes that are not a refusal.
+        When the layer is actionable that is every legal phase; when it is not,
+        it is the active phase alone, because holding what is already in effect
+        is always available. **The mask is therefore never empty**, which
+        matters for the RL consumer it was added for: a masked action space with
+        no legal action is not a constrained policy, it is a stuck one.
+
+        It describes **one** action. Acting on a phase the mask offered changes
+        the state the rest of the mask was computed against, which is what a
+        controller does anyway -- one request per decision point.
+
+        The per-outcome counters stay regardless. A masked controller that still
+        requests an illegal phase is a bug worth seeing (D-020).
+        """
+        runtime = self._runtime(intersection_id)
+        if self.actionable(intersection_id):
+            return runtime.legal_phases | {runtime.active_phase}
+        return frozenset({runtime.active_phase})
+
     def actionable(self, intersection_id: IntersectionId) -> bool:
         """True if a request could be granted now: green, and past minimum green.
 
