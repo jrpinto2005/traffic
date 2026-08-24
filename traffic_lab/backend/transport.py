@@ -138,6 +138,12 @@ class _SumoTransport:
 
     _api: Any
 
+    def __init__(self) -> None:
+        self._tls_ids: tuple[str, ...] = ()
+
+    def register(self, tls_ids: tuple[str, ...]) -> None:
+        self._tls_ids = tls_ids
+
     def start(self, argv: list[str]) -> None:
         self._api.start(argv)
 
@@ -235,12 +241,40 @@ class TraciTransport(_SumoTransport):
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self._api = traci
 
     def register(self, tls_ids: tuple[str, ...]) -> None:
+        super().register(tls_ids)
         traci.simulation.subscribe(list(_SIMULATION_VARS))
         for tls_id in tls_ids:
             traci.trafficlight.subscribe(tls_id, list(_TLS_VARS))
+
+    def load_state(self, path: Path) -> None:
+        """Load, then re-register every subscription.
+
+        **SUMO drops all TraCI subscriptions when a state is loaded**, silently:
+        the next `getSubscriptionResults()` returns an empty dict rather than
+        raising. Measured on 1.27.1 -- simulation, traffic-light and per-vehicle
+        subscriptions were all gone after one step past a `loadState`.
+
+        Re-registering the simulation and traffic-light subscriptions is not
+        enough on its own. `fetch()` learns about new vehicles from
+        `VAR_DEPARTED_VEHICLES_IDS`, and the vehicles restored by a snapshot
+        departed long before it was taken, so they would never be re-subscribed
+        and would simply be missing from every subsequent projection. The
+        population present at load is therefore subscribed explicitly here --
+        once per load, not per step, so the batching constraint is untouched.
+
+        LibSUMO needs none of this because it subscribes to nothing. That is a
+        difference in *mechanism*, which is what the D-002 seam exists to
+        absorb; `tests/backend/test_counters_and_snapshots.py` asserts the
+        observable behaviour is identical across both.
+        """
+        super().load_state(path)
+        self.register(self._tls_ids)
+        for vehicle_id in traci.vehicle.getIDList():
+            traci.vehicle.subscribe(vehicle_id, list(_VEHICLE_VARS))
 
     def fetch(self) -> RawStep:
         simulation_result = traci.simulation.getSubscriptionResults()
@@ -303,11 +337,8 @@ class LibsumoTransport(_SumoTransport):
     """
 
     def __init__(self) -> None:
+        super().__init__()
         self._api = libsumo
-        self._tls_ids: tuple[str, ...] = ()
-
-    def register(self, tls_ids: tuple[str, ...]) -> None:
-        self._tls_ids = tls_ids
 
     def fetch(self) -> RawStep:
         simulation = libsumo.simulation
