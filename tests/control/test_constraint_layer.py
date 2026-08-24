@@ -24,16 +24,89 @@ from pathlib import Path
 from tests.control.harness import (
     DEFAULT_ALL_RED_S,
     DEFAULT_YELLOW_S,
+    PHASE_CONFLICTING,
     build_layer,
     green_intervals,
     green_phase,
+    network_with_a_conflicting_phase,
     run_steps,
     stage_of,
 )
-from tests.domain.factories import INTERSECTION, PHASE_EW, PHASE_NS
+from tests.domain.factories import INTERSECTION, M_E, M_N, M_S, M_W, PHASE_EW, PHASE_NS
 from traffic_lab.control.constraint_layer import SignalStage
+from traffic_lab.domain.action import PhaseRequest, RequestOutcome
+from traffic_lab.domain.network import PhaseId
 
 CONTROL_DIR = Path(__file__).resolve().parents[2] / "traffic_lab" / "control"
+
+
+def request(phase: PhaseId) -> PhaseRequest:
+    return PhaseRequest(intersection=INTERSECTION, phase=phase)
+
+
+# --- Invariant 1 ------------------------------------------------------------
+
+
+def test_invariant_1_green_never_shorter_than_min_green() -> None:
+    """Green never shorter than `min_green_s`, under a controller that switches
+    as fast as it is allowed to ask.
+
+    Dt is 1 s against a 5 s minimum green -- the most aggressive request pattern
+    invariant 9 permits -- and the requested phase alternates every decision
+    point, so every green interval is under continuous pressure to end early.
+    """
+    min_green_s = 5.0
+    layer = build_layer(
+        min_green_s=min_green_s, max_green_s=40.0, decision_interval_s=1.0, step_length_s=1.0
+    )
+    times_s = [float(i) for i in range(300)]
+
+    def ask(now_s: float) -> None:
+        layer.submit(request(PHASE_EW if int(now_s) % 2 else PHASE_NS), now_s)
+
+    greens = run_steps(layer, times_s, on_step=ask)
+
+    intervals = green_intervals(times_s, greens)
+    assert len(intervals) > 10, "too few completed green intervals to prove anything"
+    assert min(intervals) >= min_green_s - 1e-9
+    assert layer.counters.deferred > 0, "no request was ever blocked by minimum green"
+
+
+def test_invariant_1_an_early_request_is_deferred_and_says_when_it_can_act() -> None:
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0, step_length_s=1.0)
+    layer.step(2.0)
+
+    result = layer.submit(request(PHASE_EW), 2.0)
+
+    assert result.outcome is RequestOutcome.DEFERRED
+    assert result.active_phase == PHASE_NS
+    assert result.reason, "a DEFERRED result must carry a reason"
+    assert result.seconds_until_actionable == 3.0
+    assert not layer.actionable(INTERSECTION)
+
+
+def test_a_request_at_exactly_min_green_is_granted() -> None:
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0, step_length_s=1.0)
+    layer.step(5.0)
+
+    result = layer.submit(request(PHASE_EW), 5.0)
+
+    assert result.outcome is RequestOutcome.GRANTED
+    assert result.reason == ""
+    assert result.active_phase == PHASE_EW
+    assert layer.actionable(INTERSECTION) is False  # a transition is now in progress
+
+
+def test_submitting_ahead_of_the_timers_is_refused() -> None:
+    """The two-tier structure is a precondition, not a convention."""
+    layer = build_layer()
+    layer.step(4.0)
+    try:
+        layer.submit(request(PHASE_EW), 9.0)
+    except ValueError as error:
+        assert "step()" in str(error)
+    else:  # pragma: no cover
+        raise AssertionError("submitting at a time the timers had not reached was accepted")
 
 
 # --- Invariant 2 ------------------------------------------------------------
@@ -292,3 +365,176 @@ def test_no_overshoot_is_recorded_when_max_green_falls_on_the_step_grid() -> Non
     assert layer.counters.forced >= 2
     assert layer.counters.max_green_overshoot_s == 0.0
     assert layer.counters.max_green_worst_overshoot_s == 0.0
+
+
+# --- Invariant 4 ------------------------------------------------------------
+
+
+def test_invariant_4_a_conflicting_phase_is_rejected() -> None:
+    """A phase containing a `CONFLICTING` pair is REJECTED and never reaches the backend.
+
+    The fixture is deliberately an *invalid* network -- `validate_network()`
+    would refuse it under invariant 7 of `05_DOMAIN_MODEL.md` SS8. That is the
+    point: the constraint layer is the last line of defence, and it must refuse
+    the request on its own reading of the D-023 matrix rather than trusting that
+    load-time validation happened.
+    """
+    layer = build_layer(network=network_with_a_conflicting_phase())
+    layer.step(30.0)
+
+    result = layer.submit(request(PHASE_CONFLICTING), 30.0)
+
+    assert result.outcome is RequestOutcome.REJECTED
+    assert result.active_phase == PHASE_NS, "the illegal phase must not take effect"
+    assert result.reason, "a REJECTED result must carry a reason"
+    assert "conflicting movement pair" in result.reason
+    assert layer.counters.rejected == 1
+    assert layer.counters.granted == 0
+
+
+def test_invariant_4_the_rejection_names_the_offending_pair() -> None:
+    """D-023 requires the error to name the pair, not merely to refuse."""
+    layer = build_layer(network=network_with_a_conflicting_phase())
+    layer.step(30.0)
+
+    reason = layer.submit(request(PHASE_CONFLICTING), 30.0).reason
+
+    assert str(M_N) in reason or str(M_S) in reason
+    assert str(M_E) in reason or str(M_W) in reason
+
+
+def test_invariant_4_a_conflicting_phase_never_goes_green() -> None:
+    layer = build_layer(network=network_with_a_conflicting_phase(), decision_interval_s=1.0)
+    times_s = [float(i) for i in range(200)]
+
+    greens = run_steps(
+        layer, times_s, on_step=lambda now_s: layer.submit(request(PHASE_CONFLICTING), now_s)
+    )
+
+    assert PHASE_CONFLICTING not in set(greens)
+    assert layer.counters.rejected == len(times_s)
+
+
+def test_an_unauthored_phase_is_rejected() -> None:
+    layer = build_layer()
+    layer.step(30.0)
+
+    result = layer.submit(request(PhaseId(99)), 30.0)
+
+    assert result.outcome is RequestOutcome.REJECTED
+    assert "not an authored phase" in result.reason
+    assert layer.counters.rejected == 1
+
+
+# --- Invariant 5 ------------------------------------------------------------
+
+
+def test_invariant_5_step_never_changes_the_pending_request() -> None:
+    """`step()` executes the transition a request committed to; it never retargets it."""
+    layer = build_layer(min_green_s=5.0, max_green_s=60.0, decision_interval_s=1.0)
+    layer.step(10.0)
+    granted = layer.submit(request(PHASE_EW), 10.0)
+    assert granted.outcome is RequestOutcome.GRANTED
+
+    for now_s in [float(i) for i in range(11, 40)]:
+        layer.step(now_s)
+        assert layer.signal_state(INTERSECTION).active_phase == PHASE_EW
+
+    assert green_phase(layer) == PHASE_EW
+
+
+def test_invariant_5_step_produces_no_request_outcomes_of_its_own() -> None:
+    """Except FORCED, which is the layer's own override rather than a request."""
+    layer = build_layer(min_green_s=5.0, max_green_s=20.0)
+
+    run_steps(layer, [float(i) for i in range(200)])
+
+    counters = layer.counters
+    assert (counters.granted, counters.deferred, counters.held, counters.rejected) == (0, 0, 0, 0)
+    assert counters.forced > 0
+
+
+def test_invariant_5_stepping_does_not_disturb_a_recorded_decision() -> None:
+    """The idempotency record is keyed to a decision time, not to step count."""
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0)
+    layer.step(10.0)
+    first = layer.submit(request(PHASE_EW), 10.0)
+
+    layer.step(10.0)  # a second step at the same simulated time
+
+    assert layer.submit(request(PHASE_EW), 10.0) == first
+    assert layer.counters.granted == 1
+
+
+# --- Invariant 6 ------------------------------------------------------------
+
+
+def test_invariant_6_submit_is_idempotent_within_one_decision_interval() -> None:
+    """The same request twice at the same `now_s`: same result, applied once."""
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0)
+    layer.step(10.0)
+
+    first = layer.submit(request(PHASE_EW), 10.0)
+    started_s = layer.signal_state(INTERSECTION).phase_started_s
+    second = layer.submit(request(PHASE_EW), 10.0)
+
+    assert first.outcome is RequestOutcome.GRANTED
+    assert second == first
+    assert layer.counters.granted == 1
+    assert layer.signal_state(INTERSECTION).phase_started_s == started_s
+
+
+def test_invariant_6_idempotency_holds_for_refusals_too() -> None:
+    """A repeated illegal request must not count twice; the count is diagnostic."""
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0)
+    layer.step(2.0)
+
+    first = layer.submit(request(PHASE_EW), 2.0)
+    for _ in range(10):
+        assert layer.submit(request(PHASE_EW), 2.0) == first
+
+    assert first.outcome is RequestOutcome.DEFERRED
+    assert layer.counters.deferred == 1
+
+
+def test_invariant_6_a_new_decision_time_is_a_new_decision() -> None:
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0)
+    layer.step(2.0)
+    layer.submit(request(PHASE_EW), 2.0)
+    layer.step(3.0)
+    layer.submit(request(PHASE_EW), 3.0)
+
+    assert layer.counters.deferred == 2
+
+
+# --- HELD -------------------------------------------------------------------
+
+
+def test_requesting_the_active_phase_is_held_not_deferred() -> None:
+    """HELD before the timers: keeping what is running is always available."""
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0)
+    layer.step(1.0)  # inside minimum green
+
+    result = layer.submit(request(PHASE_NS), 1.0)
+
+    assert result.outcome is RequestOutcome.HELD
+    assert result.reason == ""
+    assert result.active_phase == PHASE_NS
+    assert layer.counters.held == 1
+    assert layer.counters.deferred == 0
+
+
+def test_requesting_the_committed_phase_mid_transition_is_held() -> None:
+    """During a transition `active_phase` is the target, so naming it is a hold."""
+    layer = build_layer(min_green_s=5.0, decision_interval_s=1.0)
+    layer.step(10.0)
+    layer.submit(request(PHASE_EW), 10.0)
+    layer.step(11.0)
+
+    assert layer.signal_state(INTERSECTION).in_transition
+    result = layer.submit(request(PHASE_EW), 11.0)
+
+    assert result.outcome is RequestOutcome.HELD
+    assert layer.submit(request(PHASE_NS), 11.0).outcome is RequestOutcome.DEFERRED
+
+

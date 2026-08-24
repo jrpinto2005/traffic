@@ -15,18 +15,42 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable, Sequence
 
-from tests.domain.factories import INTERSECTION, build_valid_network
+from tests.domain.factories import INTERSECTION, SG_EW, SG_NS, build_valid_network
 from traffic_lab.control.constraint_layer import (
     ConstraintLayer,
     ConstraintLayerConfig,
     SignalStage,
 )
-from traffic_lab.domain.network import IntersectionId, Network, PhaseId, SignalTiming
+from traffic_lab.domain.network import IntersectionId, Network, Phase, PhaseId, SignalTiming
 
 DEFAULT_MIN_GREEN_S = 5.0
 DEFAULT_MAX_GREEN_S = 60.0
 DEFAULT_YELLOW_S = 3.0
 DEFAULT_ALL_RED_S = 2.0
+
+PHASE_CONFLICTING = PhaseId(2)
+"""A third, illegal phase: north-south and east-west green together."""
+
+
+def network_with_a_conflicting_phase() -> Network:
+    """The fixture network plus one phase that `validate_network()` would reject.
+
+    Deliberately invalid, per invariant 7 of `05_DOMAIN_MODEL.md` SS8. The
+    constraint layer is the last line of defence and must refuse a request for
+    this phase on its own reading of the D-023 matrix, rather than trusting that
+    load-time validation happened. It is appended rather than made first so the
+    layer still has a legal phase to start green on.
+    """
+    network = build_valid_network()
+    intersection = network.signalized_intersections[0]
+    intersection = dataclasses.replace(
+        intersection,
+        phases=(
+            *intersection.phases,
+            Phase(id=PHASE_CONFLICTING, green_groups=frozenset({SG_NS, SG_EW})),
+        ),
+    )
+    return dataclasses.replace(network, signalized_intersections=(intersection,))
 
 
 def timed_network(

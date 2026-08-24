@@ -57,6 +57,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from traffic_lab.domain.action import ActionResult, PhaseRequest, RequestOutcome
 from traffic_lab.domain.network import (
     Compatibility,
     ConflictMatrix,
@@ -273,6 +274,9 @@ class ConstraintLayer:
         self._now_s = start_s
         self._counters = ConstraintCounters()
         self._runtimes: dict[IntersectionId, _Runtime] = {}
+        # Invariant 6's memory: the results already returned at `_decisions_at_s`.
+        self._decisions: dict[tuple[IntersectionId, PhaseId], ActionResult] = {}
+        self._decisions_at_s: float | None = None
 
         conflicts_by_junction = {j.id: j.conflicts for j in network.junctions}
         for intersection in network.signalized_intersections:
@@ -283,18 +287,33 @@ class ConstraintLayer:
                 )
             conflicts = conflicts_by_junction[intersection.junction]
             movements_by_phase = _movements_by_phase(intersection)
+            phase_order = tuple(phase.id for phase in intersection.phases)
+            legal_phases = frozenset(
+                phase_id
+                for phase_id, movements in movements_by_phase.items()
+                if _conflicting_pair(conflicts, movements) is None
+            )
+            initial_phase = next(
+                (phase_id for phase_id in phase_order if phase_id in legal_phases), None
+            )
+            if initial_phase is None:
+                raise ConstraintConfigError(
+                    f"intersection {intersection.id} has no phase free of CONFLICTING "
+                    "movement pairs; the constraint layer has nothing safe to hold green"
+                )
             self._runtimes[intersection.id] = _Runtime(
                 intersection=intersection,
                 conflicts=conflicts,
-                phase_order=tuple(phase.id for phase in intersection.phases),
+                phase_order=phase_order,
                 movements_by_phase=movements_by_phase,
-                legal_phases=frozenset(
-                    phase_id
-                    for phase_id, movements in movements_by_phase.items()
-                    if _conflicting_pair(conflicts, movements) is None
-                ),
+                legal_phases=legal_phases,
                 stage=SignalStage.GREEN,
-                active_phase=intersection.phases[0].id,
+                # The first *legal* authored phase. Invariant 7 of
+                # `05_DOMAIN_MODEL.md` SS8 means a validated network's first
+                # phase is already legal; taking the first legal one keeps the
+                # layer safe even when it is handed a network that was not
+                # validated, which is the whole point of a constraint layer.
+                active_phase=initial_phase,
                 phase_started_s=start_s,
                 green_started_s=start_s,
                 stage_ends_s=math.inf,
@@ -320,6 +339,53 @@ class ConstraintLayer:
         self._now_s = now_s
         for runtime in self._runtimes.values():
             self._advance(runtime, now_s)
+
+    # --- The every-Dt tier ----------------------------------------------------
+
+    def submit(self, request: PhaseRequest, now_s: float) -> ActionResult:
+        """Grant, defer, hold, or reject a phase request. Called every Dt (D-020).
+
+        A controller *requests*; this layer grants, defers, or overrides, and
+        records which -- the record is the point, not a side effect. The
+        outcome is decided in this order, and the order is what makes each
+        outcome mean one thing:
+
+        1. **REJECTED** -- the phase is not authored for this intersection, or
+           it contains a `CONFLICTING` movement pair. Illegal requests are
+           refused before any timer is consulted, so a REJECTED count is never
+           contaminated by requests that were merely early.
+        2. **HELD** -- the request is the phase already in effect. Checked
+           before the timers, because keeping the current phase is always
+           available: a controller that names what is already running is not
+           blocked by minimum green, it simply has nothing to do.
+        3. **DEFERRED** -- legal, but a transition is in progress or minimum
+           green has not elapsed.
+        4. **GRANTED** -- the change is committed here and executed by `step()`.
+
+        FORCED is never produced here. It is a max-green override, which
+        happens between decision points and therefore belongs to `step()`.
+
+        `now_s` must be the simulated time of the most recent `step()`.
+        Submitting at a time the timers have not reached would mean deciding on
+        stale state, which is precisely the defect the two-tier structure exists
+        to prevent, so it raises rather than guessing.
+        """
+        self._require_current_time(now_s)
+        runtime = self._runtime(request.intersection)
+
+        # Invariant 6: within one decision interval, a repeated request replays
+        # its first result and applies nothing a second time.
+        if self._decisions_at_s is None or abs(self._decisions_at_s - now_s) > _TIME_EPS_S:
+            self._decisions.clear()
+            self._decisions_at_s = now_s
+        key = (request.intersection, request.phase)
+        cached = self._decisions.get(key)
+        if cached is not None:
+            return cached
+
+        result = self._decide(runtime, request, now_s)
+        self._decisions[key] = result
+        return result
 
     def actionable(self, intersection_id: IntersectionId) -> bool:
         """True if a request could be granted now: green, and past minimum green.
@@ -480,6 +546,77 @@ class ConstraintLayer:
                 f"intersection {intersection_id} is not signalized, or is not in the "
                 "network this constraint layer was built from"
             ) from None
+
+    def _require_current_time(self, now_s: float) -> None:
+        if abs(now_s - self._now_s) > _TIME_EPS_S:
+            raise ValueError(
+                f"submit(now_s={now_s}) but the constraint layer last stepped at "
+                f"{self._now_s} s. Call step() every simulation step before submitting: "
+                "deciding on timers that have not been advanced is the defect D-020's "
+                "two-tier structure exists to prevent"
+            )
+
+    def _decide(self, runtime: _Runtime, request: PhaseRequest, now_s: float) -> ActionResult:
+        movements = runtime.movements_by_phase.get(request.phase)
+        if movements is None:
+            return self._refuse(
+                runtime,
+                now_s,
+                RequestOutcome.REJECTED,
+                f"phase {request.phase} is not an authored phase of intersection "
+                f"{request.intersection}",
+            )
+        pair = _conflicting_pair(runtime.conflicts, movements)
+        if pair is not None:
+            return self._refuse(
+                runtime,
+                now_s,
+                RequestOutcome.REJECTED,
+                f"phase {request.phase} contains conflicting movement pair "
+                f"{pair} and never reaches the backend",
+            )
+        if request.phase == runtime.active_phase:
+            self._counters.held += 1
+            return self._result(runtime, now_s, RequestOutcome.HELD, "")
+        if runtime.stage is not SignalStage.GREEN:
+            return self._refuse(
+                runtime,
+                now_s,
+                RequestOutcome.DEFERRED,
+                f"a phase transition to {runtime.active_phase} is in progress",
+            )
+        if not self._min_green_elapsed(runtime, now_s):
+            elapsed_s = now_s - runtime.green_started_s
+            return self._refuse(
+                runtime,
+                now_s,
+                RequestOutcome.DEFERRED,
+                f"phase {runtime.active_phase} has been green for {elapsed_s} s of its "
+                f"{runtime.intersection.timing.min_green_s} s minimum",
+            )
+
+        self._begin_transition(runtime, request.phase, now_s)
+        self._counters.granted += 1
+        return self._result(runtime, now_s, RequestOutcome.GRANTED, "")
+
+    def _refuse(
+        self, runtime: _Runtime, now_s: float, outcome: RequestOutcome, reason: str
+    ) -> ActionResult:
+        if outcome is RequestOutcome.REJECTED:
+            self._counters.rejected += 1
+        else:
+            self._counters.deferred += 1
+        return self._result(runtime, now_s, outcome, reason)
+
+    def _result(
+        self, runtime: _Runtime, now_s: float, outcome: RequestOutcome, reason: str
+    ) -> ActionResult:
+        return ActionResult(
+            outcome=outcome,
+            active_phase=runtime.active_phase,
+            reason=reason,
+            seconds_until_actionable=max(0.0, self._actionable_at_s(runtime) - now_s),
+        )
 
     def _min_green_elapsed(self, runtime: _Runtime, now_s: float) -> bool:
         min_green_s = runtime.intersection.timing.min_green_s
