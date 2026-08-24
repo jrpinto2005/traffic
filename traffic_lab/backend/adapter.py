@@ -114,32 +114,40 @@ class SumoBackend:
         self._transport = transport
         self._config = cfg
         self._net_hash = _file_sha256(net)
-        self._sumo_version = transport.version()
 
-        self._assert_simulator_agrees(cfg, transport)
+        # From here on SUMO is running, so a failed assertion must take the
+        # simulator down with it. Leaving a process behind on a rejected startup
+        # would make the next run fail for an unrelated-looking reason -- and the
+        # whole point of these assertions is that a bad run stops cleanly.
+        try:
+            self._sumo_version = transport.version()
+            self._assert_simulator_agrees(cfg, transport)
 
-        lane_sumo_ids = transport.lane_ids()
-        intersection_sumo_ids = transport.traffic_light_ids()
-        index = BackendIndex(
-            lane_sumo_ids=lane_sumo_ids,
-            lane_lengths_m=tuple(transport.lane_length_m(lane) for lane in lane_sumo_ids),
-            intersection_sumo_ids=intersection_sumo_ids,
-        )
-        self._index = index
-        self._intersection_index = {
-            IntersectionId(i): sumo_id for i, sumo_id in enumerate(intersection_sumo_ids)
-        }
+            lane_sumo_ids = transport.lane_ids()
+            intersection_sumo_ids = transport.traffic_light_ids()
+            index = BackendIndex(
+                lane_sumo_ids=lane_sumo_ids,
+                lane_lengths_m=tuple(transport.lane_length_m(lane) for lane in lane_sumo_ids),
+                intersection_sumo_ids=intersection_sumo_ids,
+            )
+            self._index = index
+            self._intersection_index = {
+                IntersectionId(i): sumo_id for i, sumo_id in enumerate(intersection_sumo_ids)
+            }
 
-        transport.register(intersection_sumo_ids)
-        self._projector = Projector(
-            lane_sumo_ids=index.lane_sumo_ids,
-            lane_lengths_m=index.lane_lengths_m,
-            intersection_sumo_ids=intersection_sumo_ids,
-            vehicle_types=_vehicle_type_map(transport),
-            step_length_s=cfg.step_length_s,
-            gridlock_steps=cfg.gridlock_steps,
-            max_accel_mps2=_max_accel_mps2(transport),
-        )
+            transport.register(intersection_sumo_ids)
+            self._projector = Projector(
+                lane_sumo_ids=index.lane_sumo_ids,
+                lane_lengths_m=index.lane_lengths_m,
+                intersection_sumo_ids=intersection_sumo_ids,
+                vehicle_types=_vehicle_type_map(transport),
+                step_length_s=cfg.step_length_s,
+                gridlock_steps=cfg.gridlock_steps,
+                max_accel_mps2=_max_accel_mps2(transport),
+            )
+        except Exception:
+            self.close()
+            raise
 
     def close(self) -> None:
         if self._transport is not None:
