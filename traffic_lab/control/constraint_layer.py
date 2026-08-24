@@ -20,13 +20,61 @@ This module owns invariant 9's third clause (`05_DOMAIN_MODEL.md` SS8):
 it is controller-layer configuration, not network structure -- so T1.2's
 `validate_network()` correctly left it here. It is checked at load, before the
 simulator starts.
+
+`ConstraintLayer` is a concrete class, not a `typing.Protocol`, despite SS9
+writing the interface as one. Non-goal 4 of the contract is explicit -- "do NOT
+add a base class for future constraint layers. There is one." -- and SS7's
+anti-pattern list forbids an interface introduced for a second implementation
+that does not exist. SS9's `Protocol` describes the interface; the class provides
+exactly it.
+
+Time conventions, stated once because several invariants depend on them:
+
+- A **green interval** runs from the step at which a phase's green begins to the
+  step at which it ends (the start of the outgoing yellow). `min_green_s` and
+  `max_green_s` both measure that interval and nothing else.
+- `active_phase` during a transition is the **target** phase: once a change is
+  granted it is irrevocable, so the phase in effect after the transition is the
+  one a controller needs to reason about, and it makes `HELD` ("the request
+  equals the current phase; nothing to do") mean what it says. `in_transition`
+  on the returned `SignalState` distinguishes committed-but-not-yet-green from
+  green.
+- `phase_started_s` is when the active phase *became active* -- the step the
+  transition to it began -- not when its green began. It therefore never jumps
+  for a phase that is already active.
+- Stage boundaries are scheduled in absolute simulated time (`stage_ends_s`), so
+  a coarse step length cannot make yellow or all-red shorter than nominal and
+  cannot accumulate drift across a transition. Each stage lasts at least its
+  nominal duration and at most that plus one step.
 """
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from enum import StrEnum
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from traffic_lab.domain.network import Network
+from traffic_lab.domain.network import (
+    Compatibility,
+    ConflictMatrix,
+    IntersectionId,
+    MovementId,
+    Network,
+    PhaseId,
+    SignalizedIntersection,
+    compatibility,
+)
+from traffic_lab.domain.state import SignalState
+
+# Simulated seconds. Absorbs binary-floating-point error in accumulated step
+# times (0.1 + 0.1 + 0.1 != 0.3) so a timer that should expire exactly on a step
+# boundary does, rather than one step late. It is not a tolerance on the timings
+# themselves -- it is four orders of magnitude below the smallest step length
+# any SUMO scenario uses.
+_TIME_EPS_S = 1e-9
 
 
 class ConstraintConfigError(ValueError):
