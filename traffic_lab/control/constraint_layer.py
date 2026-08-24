@@ -52,7 +52,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -170,3 +170,362 @@ def validate_decision_interval(config: ConstraintLayerConfig, network: Network) 
                 "controller could not express that intersection's shortest legal phase",
                 invariant=9,
             )
+
+
+class SignalStage(StrEnum):
+    """The three stages of the one state machine: GREEN -> YELLOW -> ALL_RED -> GREEN.
+
+    Per D-023, yellow and all-red are **not** phases: they are attributes of a
+    change from one phase to another, executed here, and deliberately outside
+    the action space -- no controller should be able to choose "yellow".
+    """
+
+    GREEN = "green"
+    YELLOW = "yellow"
+    ALL_RED = "all_red"
+
+
+@dataclass(slots=True)
+class ConstraintCounters:
+    """One counter per `RequestOutcome`, plus D-020's overshoot accounting.
+
+    Exposed for the run manifest. D-020: "the RL policy requested an illegal
+    switch 400 times" is diagnostic information, not something to swallow
+    silently -- which is why the counters stay even though `allowed_phases()`
+    lets a controller avoid the illegal request in the first place. A masked
+    controller that still requests an illegal phase is a bug worth seeing.
+
+    The last three fields are D-020's known gap made visible rather than silent;
+    see `ConstraintLayer._max_green_override_target`.
+    """
+
+    granted: int = 0
+    deferred: int = 0
+    held: int = 0
+    forced: int = 0
+    rejected: int = 0
+
+    max_green_overshoot_s: float = 0.0
+    """Cumulative simulated seconds by which green intervals outlasted `max_green_s`."""
+
+    max_green_worst_overshoot_s: float = 0.0
+    """The largest single such excess. A total alone cannot distinguish one bad
+    event from many negligible ones."""
+
+    overrides_deferred_by_transition: int = 0
+    """Times a max-green override was withheld because a transition was already in
+    progress -- D-020's provisional answer, instrumented. Expected to stay 0; see
+    `_max_green_override_target` for why."""
+
+
+@dataclass(slots=True)
+class _Runtime:
+    """Per-intersection static lookup plus the mutable stage of its machine.
+
+    Static and mutable live together so the step loop does one dict lookup per
+    intersection rather than three. Everything above `stage` is computed once at
+    construction and never written again.
+    """
+
+    intersection: SignalizedIntersection
+    conflicts: ConflictMatrix
+    phase_order: tuple[PhaseId, ...]
+    movements_by_phase: Mapping[PhaseId, frozenset[MovementId]]
+    legal_phases: frozenset[PhaseId]
+
+    stage: SignalStage
+    active_phase: PhaseId
+    phase_started_s: float
+    green_started_s: float
+    stage_ends_s: float
+
+
+# Bound on `_advance`'s loop. Three stage changes in one step already means a
+# step spanning a whole transition; a fourth would mean the machine is not
+# making progress, which is worth raising rather than hanging the run.
+_MAX_STAGE_CHANGES_PER_STEP = 8
+
+
+class ConstraintLayer:
+    """Enforces signal timing and phase legality between every controller and the backend.
+
+    Built from a validated `Network` (T1.2's `validate_network()`) and a
+    `ConstraintLayerConfig`. Construction is load time: invariant 9's
+    `decision_interval_s <= min_green_s` clause is checked here, so an
+    unsatisfiable configuration fails before the simulator starts.
+
+    Every intersection starts green on its **first authored phase** at
+    `start_s`. That is not a configuration option -- an initial phase nothing
+    sets would be the D-031 anti-pattern -- it is the convention SUMO applies to
+    the first `<phase>` of a `<tlLogic>`, and it is deterministic, which is what
+    D-017 requires.
+    """
+
+    def __init__(
+        self,
+        network: Network,
+        config: ConstraintLayerConfig,
+        *,
+        start_s: float = 0.0,
+    ) -> None:
+        validate_decision_interval(config, network)
+        self._config = config
+        self._now_s = start_s
+        self._counters = ConstraintCounters()
+        self._runtimes: dict[IntersectionId, _Runtime] = {}
+
+        conflicts_by_junction = {j.id: j.conflicts for j in network.junctions}
+        for intersection in network.signalized_intersections:
+            if not intersection.phases:
+                raise ConstraintConfigError(
+                    f"intersection {intersection.id} declares no phases; the constraint "
+                    "layer has nothing to hold green"
+                )
+            conflicts = conflicts_by_junction[intersection.junction]
+            movements_by_phase = _movements_by_phase(intersection)
+            self._runtimes[intersection.id] = _Runtime(
+                intersection=intersection,
+                conflicts=conflicts,
+                phase_order=tuple(phase.id for phase in intersection.phases),
+                movements_by_phase=movements_by_phase,
+                legal_phases=frozenset(
+                    phase_id
+                    for phase_id, movements in movements_by_phase.items()
+                    if _conflicting_pair(conflicts, movements) is None
+                ),
+                stage=SignalStage.GREEN,
+                active_phase=intersection.phases[0].id,
+                phase_started_s=start_s,
+                green_started_s=start_s,
+                stage_ends_s=math.inf,
+            )
+
+    # --- The every-simulation-step tier --------------------------------------
+
+    def step(self, now_s: float) -> None:
+        """Advance timers and execute yellow / all-red. Called every simulation step.
+
+        Invariant 5: pure with respect to requests. It advances a machine
+        through stages already committed, and may start a max-green override,
+        but it never changes which phase a granted request was for.
+
+        Invariant 7: `now_s` is simulated seconds. No wall clock is read here or
+        anywhere else in this module.
+        """
+        if now_s + _TIME_EPS_S < self._now_s:
+            raise ValueError(
+                f"step(now_s={now_s}) is before the previous step at {self._now_s} s; "
+                "simulated time does not run backwards"
+            )
+        self._now_s = now_s
+        for runtime in self._runtimes.values():
+            self._advance(runtime, now_s)
+
+    def actionable(self, intersection_id: IntersectionId) -> bool:
+        """True if a request could be granted now: green, and past minimum green.
+
+        Takes no `now_s`: the layer knows the current simulated time because
+        `step()` is called every simulation step. That is the two-tier structure
+        working -- a layer that had to be told the time at a decision point
+        would be a layer whose timers were only as fine as Dt.
+        """
+        runtime = self._runtime(intersection_id)
+        return runtime.stage is SignalStage.GREEN and self._min_green_elapsed(runtime, self._now_s)
+
+    def signal_state(self, intersection_id: IntersectionId) -> SignalState:
+        """The intersection's own signal state, as the domain type.
+
+        A controller knows its own signals exactly (`05_DOMAIN_MODEL.md` SS4.2),
+        so this is the one thing the control path may read without a sensor. It
+        carries no vehicle information and no `TrueState`.
+        """
+        runtime = self._runtime(intersection_id)
+        return SignalState(
+            intersection=intersection_id,
+            active_phase=runtime.active_phase,
+            phase_started_s=runtime.phase_started_s,
+            in_transition=runtime.stage is not SignalStage.GREEN,
+        )
+
+    @property
+    def counters(self) -> ConstraintCounters:
+        """Per-outcome counters, for the run manifest."""
+        return self._counters
+
+    @property
+    def decision_interval_s(self) -> float:
+        """Dt, recorded in the manifest and reported next to every result (D-020)."""
+        return self._config.decision_interval_s
+
+    # --- The one state machine -----------------------------------------------
+
+    def _advance(self, runtime: _Runtime, now_s: float) -> None:
+        """Run `runtime`'s machine forward to `now_s`.
+
+        A loop rather than a single test, because one simulation step may be
+        coarse enough to span a whole transition (a 5 s step over a 3 s yellow
+        and a 2 s all-red). It terminates: entering GREEN puts the next boundary
+        `max_green_s` away, and invariant 9 guarantees `max_green_s >
+        min_green_s > 0`.
+        """
+        for _ in range(_MAX_STAGE_CHANGES_PER_STEP):
+            if runtime.stage is SignalStage.GREEN:
+                target = self._max_green_override_target(runtime, now_s)
+                if target is None:
+                    return
+                self._record_max_green_overshoot(runtime, now_s)
+                self._counters.forced += 1
+                self._begin_transition(runtime, target, now_s)
+                continue
+            if now_s + _TIME_EPS_S < runtime.stage_ends_s:
+                return
+            all_red_s = runtime.intersection.timing.all_red_s
+            if runtime.stage is SignalStage.YELLOW and all_red_s > 0.0:
+                # Scheduled from the yellow's nominal end, not from `now_s`, so
+                # a coarse step cannot lengthen the all-red as well.
+                runtime.stage = SignalStage.ALL_RED
+                runtime.stage_ends_s = runtime.stage_ends_s + all_red_s
+                continue
+            runtime.stage = SignalStage.GREEN
+            runtime.green_started_s = now_s
+            runtime.stage_ends_s = math.inf
+            return
+        raise RuntimeError(  # pragma: no cover -- see the loop bound
+            f"intersection {runtime.intersection.id} changed stage "
+            f"{_MAX_STAGE_CHANGES_PER_STEP} times in one step at {now_s} s"
+        )
+
+    def _max_green_override_target(self, runtime: _Runtime, now_s: float) -> PhaseId | None:
+        """The phase a max-green override switches to now, or `None` for no override.
+
+        **D-020's known gap.** The register leaves open what happens when max
+        green expires while a phase transition is in progress, with the
+        provisional answer that the override *waits* and the overshoot is
+        recorded. The second branch below is that answer, written explicitly
+        rather than left implicit in the control flow.
+
+        It is also **unreachable**, which is the finding this ticket owed the
+        register: `max_green_s` measures the green interval (invariant 2, "green
+        never longer than max_green_s"), and a green interval is by definition
+        not running during a transition, so the expiry cannot occur
+        mid-transition. Preempting -- the alternative the register names -- would
+        have violated invariant 3. `overrides_deferred_by_transition` counts the
+        branch anyway: an unreachable case that is merely asserted is a claim;
+        one that is counted is a measurement.
+
+        What the register calls an overshoot "up to `yellow_s + all_red_s`" does
+        exist, but as a property of *service* rather than of green: a phase
+        forced off at `max_green_s` still holds the intersection for the
+        clearance that follows, so the next green begins `max_green_s +
+        yellow_s + all_red_s` after this one did. That is a real property of the
+        system and belongs in the results document. The overshoot recorded here
+        is the separate, smaller one that `max_green_s` itself suffers: a green
+        interval can outlast it by up to one step length when `max_green_s` does
+        not fall on the step grid.
+
+        The layer's "own choice" of replacement phase (SS9's wording for FORCED)
+        is the **next legal phase in authored order, wrapping**. Authored order
+        is the order an engineer wrote the program in, so this is the phase a
+        fixed-time program would run next; it is deterministic, and it is the
+        only choice that does not require the layer to hold a policy. An
+        intersection with a single legal phase has nothing to override to and is
+        left alone.
+        """
+        max_green_s = runtime.intersection.timing.max_green_s
+        if max_green_s <= 0.0:  # 0.0 disables the override (SS2.7, SS9)
+            return None
+        expired = now_s + _TIME_EPS_S >= runtime.green_started_s + max_green_s
+        if runtime.stage is not SignalStage.GREEN:
+            if expired:
+                self._counters.overrides_deferred_by_transition += 1
+            return None
+        if not expired:
+            return None
+        return self._next_legal_phase(runtime)
+
+    def _record_max_green_overshoot(self, runtime: _Runtime, now_s: float) -> None:
+        overshoot_s = (now_s - runtime.green_started_s) - runtime.intersection.timing.max_green_s
+        if overshoot_s <= _TIME_EPS_S:
+            return
+        self._counters.max_green_overshoot_s += overshoot_s
+        self._counters.max_green_worst_overshoot_s = max(
+            self._counters.max_green_worst_overshoot_s, overshoot_s
+        )
+
+    def _next_legal_phase(self, runtime: _Runtime) -> PhaseId | None:
+        order = [phase_id for phase_id in runtime.phase_order if phase_id in runtime.legal_phases]
+        if runtime.active_phase not in order or len(order) < 2:
+            return None
+        return order[(order.index(runtime.active_phase) + 1) % len(order)]
+
+    def _begin_transition(self, runtime: _Runtime, target: PhaseId, now_s: float) -> None:
+        """Commit a phase change: the green interval ends here, the clearance begins.
+
+        The change is committed at `now_s` -- SS9: "GRANTED: phase change begins
+        this step" -- but the yellow and all-red are counted down by `step()`
+        alone, per invariant 3.
+        """
+        runtime.stage = SignalStage.YELLOW
+        runtime.stage_ends_s = now_s + runtime.intersection.timing.yellow_s
+        runtime.active_phase = target
+        runtime.phase_started_s = now_s
+
+    # --- Shared queries ------------------------------------------------------
+
+    def _runtime(self, intersection_id: IntersectionId) -> _Runtime:
+        try:
+            return self._runtimes[intersection_id]
+        except KeyError:
+            raise KeyError(
+                f"intersection {intersection_id} is not signalized, or is not in the "
+                "network this constraint layer was built from"
+            ) from None
+
+    def _min_green_elapsed(self, runtime: _Runtime, now_s: float) -> bool:
+        min_green_s = runtime.intersection.timing.min_green_s
+        return now_s + _TIME_EPS_S >= runtime.green_started_s + min_green_s
+
+    def _actionable_at_s(self, runtime: _Runtime) -> float:
+        """The earliest simulated time at which a request could be granted."""
+        timing = runtime.intersection.timing
+        if runtime.stage is SignalStage.GREEN:
+            return runtime.green_started_s + timing.min_green_s
+        if runtime.stage is SignalStage.YELLOW:
+            return runtime.stage_ends_s + timing.all_red_s + timing.min_green_s
+        return runtime.stage_ends_s + timing.min_green_s
+
+
+def _movements_by_phase(
+    intersection: SignalizedIntersection,
+) -> Mapping[PhaseId, frozenset[MovementId]]:
+    """The movements each authored phase turns green, via its signal groups."""
+    movements_by_group = {group.id: group.movements for group in intersection.signal_groups}
+    return {
+        phase.id: frozenset(
+            movement
+            for group_id in phase.green_groups
+            for movement in movements_by_group.get(group_id, ())
+        )
+        for phase in intersection.phases
+    }
+
+
+def _conflicting_pair(
+    conflicts: ConflictMatrix, movements: frozenset[MovementId]
+) -> tuple[MovementId, MovementId] | None:
+    """The first `CONFLICTING` pair in `movements`, or `None` if there is none.
+
+    Returns the pair rather than a bool because D-023 requires the error to name
+    it. `PERMITTED` is not a conflict: per D-023 a permitted movement may run
+    simultaneously and yields. Both directions of the asymmetric relation are
+    checked, so neither ordering can hide a `CONFLICTING` entry.
+    """
+    ordered = sorted(movements)
+    for i, a in enumerate(ordered):
+        for b in ordered[i + 1 :]:
+            if (
+                compatibility(conflicts, a, b) is Compatibility.CONFLICTING
+                or compatibility(conflicts, b, a) is Compatibility.CONFLICTING
+            ):
+                return (a, b)
+    return None
