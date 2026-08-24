@@ -53,7 +53,8 @@ class LaneState:
 class SignalState:
     intersection: IntersectionId
     active_phase: PhaseId
-    phase_started_s: float
+    phase_started_s: float  # when the phase became active - transition start
+    green_started_s: float | None  # when its green began; None while in transition
     in_transition: bool
 
 

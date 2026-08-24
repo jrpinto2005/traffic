@@ -59,6 +59,7 @@ def test_estimated_state_never_observed_lane_has_none_last_observed() -> None:
         intersection=IntersectionId(0),
         active_phase=PhaseId(0),
         phase_started_s=0.0,
+        green_started_s=0.0,
         in_transition=False,
     )
     state = EstimatedState(time_s=5.0, lanes=(estimate,), signals=(signal,))

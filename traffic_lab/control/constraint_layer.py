@@ -438,6 +438,9 @@ class ConstraintLayer:
             intersection=intersection_id,
             active_phase=runtime.active_phase,
             phase_started_s=runtime.phase_started_s,
+            green_started_s=(
+                runtime.green_started_s if runtime.stage is SignalStage.GREEN else None
+            ),
             in_transition=runtime.stage is not SignalStage.GREEN,
         )
 
