@@ -174,7 +174,12 @@ class SignalizedIntersection:
     signal_groups: tuple[SignalGroup, ...]     # invariant: len >= 2
     phases: tuple[Phase, ...]                  # validated against the conflict matrix
     timing: SignalTiming                       # min/max green, yellow, all-red
+    controlled_connections: tuple[LaneConnectionId, ...]   # display order = SUMO link index (D-034)
 ```
+
+`controlled_connections` lists the connections the signal displays, in the order of SUMO's
+state string, so that a displayed red/yellow/green string can be read back as a canonical phase
+(`D-034`). Added 2026-10-07.
 
 A `SignalizedIntersection` **is a** `Junction` with signals — specialisation, not composition.
 Signalizing promotes; de-signalizing demotes; nothing is created or destroyed. This is what
@@ -372,6 +377,8 @@ class Detection:
     vehicle_class: VehicleType
     class_confidence: float            # [0, 1]
     track_id: int | None               # None if the sensor does not track
+    lane: LaneId | None                # the sensor's lane assignment; None if it cannot assign
+    stationary_s: float | None         # time seen stationary, 0.0 while moving; None if untracked
 
 @dataclass(frozen=True, slots=True)
 class Observation:
@@ -387,6 +394,11 @@ result would be wrong in the same direction.
 
 `track_id` is nullable because tracking is a sensor capability, not a given. Whether the
 controller has access to identity across frames is an experimental variable at M3.
+
+`lane` and `stationary_s` were added 2026-10-07 (`D-033`). Without them an estimator cannot
+place a detection on a lane — the domain has no lane geometry — nor apply `D-025`'s ≥ 1 s
+halting condition from samples taken every Δt. Both are ordinary outputs of traffic video
+analytics, so a pixel pipeline can fill them, and both are things a camera can get wrong.
 
 ### 4.2 EstimatedState
 
@@ -536,12 +548,18 @@ forbidden.
 | `LaneConnection` | `<connection>` | |
 | `Junction` | `<junction>` / node | SUMO's `type` attribute distinguishes signalized from priority — the same split as `D-010`. |
 | `SignalizedIntersection` | junction with `type="traffic_light"` + `<tlLogic>` | |
-| `Phase` | `<phase>` in `<tlLogic>` | Ours holds green groups; SUMO's holds a per-connection state string. The adapter translates. |
+| `Phase` | `<phase>` in `<tlLogic>` | Ours holds green groups; SUMO's holds a per-connection state string. Translated both ways through `SignalizedIntersection.controlled_connections`; `TrueState` decodes the displayed string, because SUMO's phase index is always 0 once a controller drives the light (`D-034`). |
 | `ConflictMatrix` | Computed junction `<request>` / response matrix | Seeded from SUMO, overridable. |
 | `Movement` | No single equivalent | A view over connections; SUMO has no first-class movement. |
 | `VehicleType` | `<vType>` | Dynamics parameters live in SUMO and are recorded in the manifest, never interpreted by us (`D-003`). |
 | `DemandSpec` | `<flow>` + `jtrrouter` turn files | §6.1 |
 | Snapshot | `--save-state` / `--load-state` | `D-032` |
+
+**Integer IDs follow sorted SUMO IDs.** `LaneId(i)` is the *i*-th of all SUMO lane IDs in
+sorted order, internal (`:`-prefixed) lanes included; `EdgeId`, `JunctionId` and
+`IntersectionId` likewise over edges, junctions and traffic lights. This is the order the
+backend already uses (`BackendIndex`), so the network generator and the backend agree without
+exchanging a table. Added 2026-10-07.
 
 ---
 

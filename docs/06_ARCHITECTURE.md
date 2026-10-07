@@ -291,7 +291,8 @@ while sim.time < end_time:
 
     if sim.time >= next_decision_time:      # EVERY Δt: the expensive part
         obs = sensor.observe(true_state, sim.time)
-        est = estimator.update(obs, sim.time)
+        own = tuple(constraint_layer.signal_state(i) for i in intersections)  # D-033
+        est = estimator.update(obs, own, sim.time)
         req = controller.decide(est, sim.time)
         result = constraint_layer.submit(req, sim.time)
         if trace_enabled:
@@ -390,8 +391,10 @@ Per `D-014`. Directories are created when code goes into them.
 **Dependency rules, checked by test:**
 
 1. `control/` does not import `TrueState` (§4.3).
-2. Only `backend/` imports TraCI or LibSUMO. Enforcing
-   `00_RESEARCH_SPECIFICATION.md` §25's hard boundary as a test rather than a convention.
+2. Only `backend/` imports TraCI or LibSUMO — `00_RESEARCH_SPECIFICATION.md` §25's hard
+   boundary, enforced as a test rather than a convention. `sumolib`, which is offline file
+   tooling (binary lookup, net parsing), is also allowed in `scenarios/`, which generates SUMO
+   input files.
 3. `domain/` imports nothing from the project. It is the vocabulary; it cannot depend on
    users of the vocabulary.
 4. The renderer and analysis tools do not import `backend/`.
