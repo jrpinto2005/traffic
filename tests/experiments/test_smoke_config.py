@@ -14,7 +14,9 @@ import pytest
 from traffic_lab.experiments.cli import run_command
 from traffic_lab.experiments.config import load_config
 
-SMOKE_CONFIG = Path("configs/smoke.yaml")
+# Anchored to the repository, not the working directory: pytest may be invoked
+# from anywhere.
+SMOKE_CONFIG = Path(__file__).resolve().parents[2] / "configs" / "smoke.yaml"
 
 
 def test_smoke_config_loads_as_a_valid_run_config() -> None:

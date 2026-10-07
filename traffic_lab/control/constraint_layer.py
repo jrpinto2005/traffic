@@ -59,14 +59,13 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from traffic_lab.domain.action import ActionResult, PhaseRequest, RequestOutcome
 from traffic_lab.domain.network import (
-    Compatibility,
     ConflictMatrix,
     IntersectionId,
     MovementId,
     Network,
     PhaseId,
     SignalizedIntersection,
-    compatibility,
+    conflicting_pair,
 )
 from traffic_lab.domain.state import SignalState
 
@@ -291,7 +290,7 @@ class ConstraintLayer:
             legal_phases = frozenset(
                 phase_id
                 for phase_id, movements in movements_by_phase.items()
-                if _conflicting_pair(conflicts, movements) is None
+                if conflicting_pair(conflicts, movements) is None
             )
             initial_phase = next(
                 (phase_id for phase_id in phase_order if phase_id in legal_phases), None
@@ -597,8 +596,10 @@ class ConstraintLayer:
                 f"phase {request.phase} is not an authored phase of intersection "
                 f"{request.intersection}",
             )
-        pair = _conflicting_pair(runtime.conflicts, movements)
-        if pair is not None:
+        if request.phase not in runtime.legal_phases:
+            # Legality was decided once, at construction. The pair is recomputed
+            # only here, on the refusal path, because D-023 requires naming it.
+            pair = conflicting_pair(runtime.conflicts, movements)
             return self._refuse(
                 runtime,
                 now_s,
@@ -676,24 +677,3 @@ def _movements_by_phase(
         )
         for phase in intersection.phases
     }
-
-
-def _conflicting_pair(
-    conflicts: ConflictMatrix, movements: frozenset[MovementId]
-) -> tuple[MovementId, MovementId] | None:
-    """The first `CONFLICTING` pair in `movements`, or `None` if there is none.
-
-    Returns the pair rather than a bool because D-023 requires the error to name
-    it. `PERMITTED` is not a conflict: per D-023 a permitted movement may run
-    simultaneously and yields. Both directions of the asymmetric relation are
-    checked, so neither ordering can hide a `CONFLICTING` entry.
-    """
-    ordered = sorted(movements)
-    for i, a in enumerate(ordered):
-        for b in ordered[i + 1 :]:
-            if (
-                compatibility(conflicts, a, b) is Compatibility.CONFLICTING
-                or compatibility(conflicts, b, a) is Compatibility.CONFLICTING
-            ):
-                return (a, b)
-    return None

@@ -326,7 +326,7 @@ Agent archetypes and the ticket template are specified in `08_AGENT_HANDOFF_PROT
 | `01_CRITICAL_REVIEW.md` | Adversarial reading of the specification. | v1.0, complete |
 | `02_PROJECT_CHARTER.md` | **This document.** Deliverable, scope, success criteria. Governs. | v1.0, active |
 | `03_ROADMAP.md` | Vertical-slice milestones and exit criteria. | v1.0, active |
-| `04_DECISION_REGISTER.md` | Every decision: settled, proposed, open, deferred. | v1.0, living |
+| `04_DECISION_REGISTER.md` | Every decision: settled, proposed, open, deferred. | v1.5, living |
 | `05_DOMAIN_MODEL.md` | Canonical entities, schemas, SUMO mapping. | v1.0, active |
 | `06_ARCHITECTURE.md` | Layers, boundaries, adapter design, extension points. | v1.0, active |
 | `07_EXPERIMENT_METHODOLOGY.md` | Metrics, seeds, statistics, validity checks. | v1.0, active |

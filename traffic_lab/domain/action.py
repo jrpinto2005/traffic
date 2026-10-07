@@ -4,9 +4,9 @@ Implements D-020's canonical action interface: phase selection through a
 constraint layer. Every controller acts through these types, including
 fixed-time, which simply names the phase its schedule dictates -- that is what
 makes a schedule and a learned policy comparable. The constraint layer itself
-(`ConstraintLayer`, the state machine, the per-outcome counters) is T1.6's
-contract, not this ticket's; only the shared request/outcome/result vocabulary
-lives here.
+(`ConstraintLayer`, the state machine, the per-outcome counters) is T1.7's
+contract, in `traffic_lab.control.constraint_layer`; only the shared
+request/outcome/result vocabulary lives here.
 """
 
 from __future__ import annotations
