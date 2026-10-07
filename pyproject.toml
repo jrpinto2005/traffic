@@ -58,21 +58,17 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 python_version = "3.12"
+# Plain `mypy` checks both, so the command in the README is the whole check.
+files = ["traffic_lab", "tests"]
+# Strict everywhere, not per package. D-004 needs it on `domain/`, where the
+# truth/observation separation depends on types being real rather than
+# decorative, and 06_ARCHITECTURE.md §4.3 needs it on `control/`, the second of
+# the three layers that keep TrueState out of the control path. Everything else
+# already passed strict; making it global stops a new package from silently
+# starting out lax.
+strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
-
-# D-004: strict on the domain package, where the truth/observation separation
-# depends on types being real rather than decorative.
-[[tool.mypy.overrides]]
-module = "traffic_lab.domain.*"
-strict = true
-
-# T1.7 / 06_ARCHITECTURE.md §4.3: strict on the control package too. The second
-# of the three layers that keep TrueState out of the control path — the
-# Controller protocol and the constraint layer must accept EstimatedState only.
-[[tool.mypy.overrides]]
-module = "traffic_lab.control.*"
-strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
