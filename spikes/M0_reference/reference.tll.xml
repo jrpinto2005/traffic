@@ -1,8 +1,12 @@
 <additional>
+    <!-- States follow the link order netconvert assigns in the built net (N, E, S, W; two links
+         each), not the linkIndex values in reference.con.xml, which netconvert does not honour.
+         Corrected 2026-10-07: the original GGGGrrrr greened north and east together, so crossing
+         through movements ran simultaneously. Always read linkIndex back from the built net. -->
     <tlLogic id="j1" type="static" programID="base" offset="0">
-        <phase duration="27" state="GGGGrrrr"/>
-        <phase duration="3" state="yyyyrrrr"/>
-        <phase duration="27" state="rrrrGGGG"/>
-        <phase duration="3" state="rrrryyyy"/>
+        <phase duration="27" state="GGrrGGrr"/>
+        <phase duration="3" state="yyrryyrr"/>
+        <phase duration="27" state="rrGGrrGG"/>
+        <phase duration="3" state="rryyrryy"/>
     </tlLogic>
 </additional>

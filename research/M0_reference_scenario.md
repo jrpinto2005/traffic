@@ -2,6 +2,18 @@
 
 **Ticket:** `tickets/M0/T0.2_reference_scenario.md` · **Status:** complete as a source artifact
 
+> **Correction, 2026-10-07.** The program described below as "NS and EW" greened **north and
+> east together** — crossing through movements ran simultaneously — from 2026-08-18 until this
+> date. `reference.con.xml` assigns `linkIndex` 0–1 north, 2–3 south, 4–5 east, 6–7 west, but
+> netconvert does not honour those values: the built net orders links N, E, S, W, and
+> `GGGGrrrr` landed on north and east. SUMO resolved the crossings with emergency braking,
+> which the backend's `--no-warnings` flag hid. Found while writing T1.3's contract; fixed in
+> `reference.tll.xml` against the built net's link order. Everything measured on this scenario
+> before the fix measured an intersection no engineer would deploy: T0.3's wall-clock ranking
+> and T1.4's adapter behaviour are unaffected in kind, but no traffic quantity from it (delay,
+> queue, throughput) should be cited. **Lesson for T1.3: read `linkIndex` back from the built
+> net; never assume the one you wrote.**
+
 ---
 
 ## 1. Network
