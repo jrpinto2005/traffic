@@ -3,9 +3,14 @@
 Implements D-005's reserved extension point for a real perception pipeline:
 `Observation` is a stream of detections with uncertainty, and nothing in it
 references how it was produced -- no field mentions field of view, range, or
-detection probability. `EstimatedState` is the only state a controller ever
-sees; per `06_ARCHITECTURE.md` SS4.1, the oracle is a sensor, not a bypass, so
-even a "perfect" arm's controller reads this module's types, never `TrueState`.
+detection probability. `Detection.lane` and `Detection.stationary_s` (D-033) are
+ordinary outputs of traffic video analytics -- lane-level presence and dwell
+time -- so a pixel pipeline fills them from its own map-matching and tracker,
+and a camera model may get either wrong.
+
+`EstimatedState` is the only state a controller ever sees; per
+`06_ARCHITECTURE.md` SS4.1, the oracle is a sensor, not a bypass, so even a
+"perfect" arm's controller reads this module's types, never `TrueState`.
 """
 
 from __future__ import annotations
@@ -27,6 +32,8 @@ class Detection:
     vehicle_class: VehicleType
     class_confidence: float  # [0, 1]
     track_id: int | None  # None if the sensor does not track
+    lane: LaneId | None  # the sensor's lane assignment; None if it cannot assign (D-033)
+    stationary_s: float | None  # time seen stationary, 0.0 while moving; None if untracked (D-033)
 
 
 @dataclass(frozen=True, slots=True)

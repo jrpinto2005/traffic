@@ -15,6 +15,28 @@ def test_detection_carries_no_field_naming_how_it_was_produced() -> None:
     assert forbidden.isdisjoint(Observation.__dataclass_fields__)
 
 
+def test_detection_lane_and_stationary_time_are_optional_sensor_outputs() -> None:
+    # D-033: both are things a sensor can fail to provide, and `None` says so.
+    # Neither is a parameter of the parametric sensor model, so D-005 still holds.
+    fields = Detection.__dataclass_fields__
+    assert {"lane", "stationary_s"} <= fields.keys()
+    untracked = Detection(
+        sensor=SensorId(0),
+        observed_at_s=1.0,
+        position_xy=(0.0, 0.0),
+        position_cov=(0.1, 0.1, 0.0),
+        speed_mps=0.0,
+        speed_std=0.5,
+        vehicle_class=VehicleType.MOTORCYCLE,
+        class_confidence=0.5,
+        track_id=None,
+        lane=None,
+        stationary_s=None,
+    )
+    assert untracked.lane is None
+    assert untracked.stationary_s is None
+
+
 def test_observation_lanes_distinguish_covered_from_uncovered() -> None:
     detection = Detection(
         sensor=SensorId(0),
@@ -26,6 +48,8 @@ def test_observation_lanes_distinguish_covered_from_uncovered() -> None:
         vehicle_class=VehicleType.CAR,
         class_confidence=0.9,
         track_id=None,
+        lane=LaneId(0),
+        stationary_s=0.0,
     )
     observation = Observation(
         received_at_s=1.1,
