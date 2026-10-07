@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import traci
 
 from tests.backend.conftest import make_config
 from traffic_lab.backend import SumoBackend
@@ -82,7 +83,10 @@ class _CountingApi:
 
 @pytest.fixture
 def counting_traci(monkeypatch: pytest.MonkeyPatch) -> _CountingApi:
-    api = _CountingApi(transport_module.traci)
+    # The same module object the transport uses; imported here because the
+    # transport does not re-export it, and mypy --strict will not read it
+    # through the module. The import boundary governs traffic_lab, not tests.
+    api = _CountingApi(traci)
     monkeypatch.setattr(transport_module, "traci", api)
     return api
 
