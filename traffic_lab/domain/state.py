@@ -24,6 +24,20 @@ from dataclasses import dataclass
 
 from traffic_lab.domain.network import IntersectionId, LaneId, PhaseId, VehicleId, VehicleType
 
+# D-025's two thresholds live here, in the domain, so that the backend, the
+# sensors and the estimators share one definition (D-033). `traffic_lab.backend`
+# re-exports both names.
+
+#: Speed below which SUMO -- and therefore `VehicleState.is_halting` (D-025,
+#: `05_DOMAIN_MODEL.md` SS8 invariant 11) -- considers a vehicle halting.
+HALTING_SPEED_MPS = 0.1
+
+#: Continuous halting duration a vehicle must reach before it counts towards
+#: `LaneState.queue_count` (D-025, invariant 12). SUMO's native halting counter
+#: applies no duration condition, so this part is ours -- see
+#: `research/M0_sumo_semantics.md` SS1.3.
+QUEUE_MIN_HALTING_S = 1.0
+
 
 @dataclass(frozen=True, slots=True)
 class VehicleState:

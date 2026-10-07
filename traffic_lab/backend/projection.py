@@ -30,11 +30,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from traffic_lab.backend.config import (
-    HALTING_SPEED_MPS,
-    QUEUE_MIN_HALTING_S,
-    BackendStartupError,
-)
+from traffic_lab.backend.config import BackendStartupError
 from traffic_lab.backend.transport import RawStep, RawVehicle
 from traffic_lab.domain.network import (
     IntersectionId,
@@ -44,6 +40,8 @@ from traffic_lab.domain.network import (
     VehicleType,
 )
 from traffic_lab.domain.state import (
+    HALTING_SPEED_MPS,
+    QUEUE_MIN_HALTING_S,
     LaneState,
     RunCounters,
     SignalState,

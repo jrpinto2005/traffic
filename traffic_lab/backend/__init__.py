@@ -20,13 +20,12 @@ from traffic_lab.backend.adapter import (
     SumoBackend,
 )
 from traffic_lab.backend.config import (
-    HALTING_SPEED_MPS,
-    QUEUE_MIN_HALTING_S,
     BackendConfig,
     BackendStartupError,
     SnapshotMismatchError,
     TransportName,
 )
+from traffic_lab.domain.state import HALTING_SPEED_MPS, QUEUE_MIN_HALTING_S
 
 __all__ = [
     "HALTING_SPEED_MPS",
