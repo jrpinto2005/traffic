@@ -43,6 +43,15 @@ build-backend = "hatchling.build"
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Spike code is throwaway by policy (08_AGENT_HANDOFF_PROTOCOL.md §2.1) and is never
+# imported by traffic_lab; holding it to the package's lint bar would make
+# `ruff check` unpassable for no gain.
+extend-exclude = ["spikes"]
+
+[tool.ruff.format]
+# The Python blocks in the documents are contracts with deliberate alignment.
+# Reformatting them is churn in frozen text, not a style fix.
+exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
