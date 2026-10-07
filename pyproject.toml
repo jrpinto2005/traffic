@@ -58,6 +58,13 @@ warn_redundant_casts = true
 module = "traffic_lab.domain.*"
 strict = true
 
+# T1.7 / 06_ARCHITECTURE.md §4.3: strict on the control package too. The second
+# of the three layers that keep TrueState out of the control path — the
+# Controller protocol and the constraint layer must accept EstimatedState only.
+[[tool.mypy.overrides]]
+module = "traffic_lab.control.*"
+strict = true
+
 # Strict on the backend too: it is the only package that touches SUMO, and
 # `06_ARCHITECTURE.md` SS5 makes it the most correctness-sensitive code in M1.
 [[tool.mypy.overrides]]

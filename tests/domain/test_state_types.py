@@ -35,6 +35,7 @@ def test_true_state_is_frozen_and_holds_its_parts() -> None:
         intersection=IntersectionId(0),
         active_phase=PhaseId(0),
         phase_started_s=0.0,
+        green_started_s=0.0,
         in_transition=False,
     )
     counters = RunCounters(

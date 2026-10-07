@@ -86,6 +86,20 @@ class _VehicleRecord:
 
 
 @dataclass(slots=True)
+class _SignalRecord:
+    """When the current phase became active, and when its green began.
+
+    SUMO reports neither across a transition boundary, so both are tracked --
+    see `Projector._project_signals`.
+    """
+
+    phase_started_s: float
+    green_started_s: float | None
+    in_transition: bool
+    phase_index: int
+
+
+@dataclass(slots=True)
 class _CumulativeCounters:
     """Run-to-date totals behind `RunCounters`. Serialised into snapshot sidecars."""
 
@@ -138,6 +152,7 @@ class Projector:
         self._active: dict[str, _VehicleRecord] = {}
         self._next_vehicle_id = 0
         self._counters = _CumulativeCounters()
+        self._signals: dict[str, _SignalRecord] = {}
 
     # --- Projection ----------------------------------------------------------
 
@@ -354,21 +369,87 @@ class Projector:
         return tuple(lanes)
 
     def _project_signals(self, raw: RawStep, time_s: float) -> tuple[SignalState, ...]:
+        """Project each traffic light, tracking when its phase and its green began.
+
+        `phase_started_s` and `green_started_s` are **different instants**, and
+        that difference is the point of the 2026-08-24 amendment: a phase becomes
+        active when the transition *into* it begins, and its green begins when
+        that transition ends. The amendment's own arithmetic -- `now -
+        phase_started_s - yellow_s - all_red_s` as the formula a consumer would
+        otherwise have had to write -- only holds under that reading.
+
+        Neither instant is directly available from SUMO. `TL_SPENT_DURATION`
+        measures the current *SUMO* phase, and SUMO models a transition as a
+        phase of its own, so it resets when green begins and again when the next
+        yellow begins. The transition boundary is therefore tracked here, from
+        the one signal that is always available and needs no phase table:
+        whether the current state string shows green to anybody.
+
+        Two consequences worth knowing:
+
+        * While a transition is running, `active_phase` is SUMO's index for the
+          transition phase itself, not for the phase being transitioned into --
+          SUMO has no notion of the latter. `phase_started_s` and `active_phase`
+          therefore describe the same phase only once `in_transition` is false.
+        * The tracked instants travel in the snapshot sidecar, because a SUMO
+          state file does not carry them (D-032).
+        """
         signals: list[SignalState] = []
         for index, sumo_id in enumerate(self._intersection_sumo_ids):
             raw_signal = raw.signals[sumo_id]
+            # A phase showing no green to anybody is a transition -- yellow or
+            # all-red. Derived from the state string so that it needs no
+            # knowledge of how the program was authored, and so that it stays
+            # correct while a controller drives the signal directly.
+            in_transition = "g" not in raw_signal.ryg_state.lower()
+            # The instant the display last changed. At a genuine SUMO phase
+            # boundary the new phase has been running for exactly one step, so
+            # this is SUMO's own switch instant rather than the step at which we
+            # noticed -- a one-step difference that would otherwise make the
+            # first cycle a step longer than every later one. The clamp handles
+            # a controller override (T1.7), which changes the display without
+            # changing the SUMO phase and so leaves `spent_duration_s` running.
+            changed_s = time_s - min(raw_signal.spent_duration_s, self._step_length_s)
+            record = self._signals.get(sumo_id)
+
+            if record is None:
+                # First observation: fall back to SUMO's own spent duration,
+                # which is the best available and is exact whenever the run
+                # starts at a phase boundary.
+                started_s = time_s - raw_signal.spent_duration_s
+                record = _SignalRecord(
+                    phase_started_s=started_s,
+                    green_started_s=None if in_transition else started_s,
+                    in_transition=in_transition,
+                    phase_index=raw_signal.phase_index,
+                )
+                self._signals[sumo_id] = record
+            elif in_transition and not record.in_transition:
+                # The transition into the next phase has started, so the next
+                # phase became active then.
+                record.phase_started_s = changed_s
+                record.green_started_s = None
+            elif not in_transition and record.in_transition:
+                # Green began. `phase_started_s` deliberately stays where the
+                # transition put it.
+                record.green_started_s = changed_s
+            elif not in_transition and raw_signal.phase_index != record.phase_index:
+                # Green straight to green with no transition between them: a
+                # program that omits one, or a controller override. Both
+                # instants coincide.
+                record.phase_started_s = changed_s
+                record.green_started_s = changed_s
+
+            record.in_transition = in_transition
+            record.phase_index = raw_signal.phase_index
+
             signals.append(
                 SignalState(
                     intersection=IntersectionId(index),
                     active_phase=PhaseId(raw_signal.phase_index),
-                    # `TL_SPENT_DURATION` rather than our own change detection:
-                    # it is correct immediately after a snapshot load (D-032),
-                    # where a locally tracked start time would not be.
-                    phase_started_s=time_s - raw_signal.spent_duration_s,
-                    # A phase showing no green to anyone is a transition --
-                    # yellow or all-red. Derived from the state string so that
-                    # it needs no knowledge of how a program was authored.
-                    in_transition="g" not in raw_signal.ryg_state.lower(),
+                    phase_started_s=record.phase_started_s,
+                    green_started_s=record.green_started_s,
+                    in_transition=in_transition,
                 )
             )
         return tuple(signals)
@@ -426,6 +507,15 @@ class Projector:
                 "motionless_steps": self._counters.motionless_steps,
                 "gridlock_detected": self._counters.gridlock_detected,
             },
+            "signals": {
+                sumo_id: [
+                    record.phase_started_s,
+                    record.green_started_s,
+                    record.in_transition,
+                    record.phase_index,
+                ]
+                for sumo_id, record in self._signals.items()
+            },
             "vehicles": {
                 sumo_id: [
                     int(record.canonical_id),
@@ -455,4 +545,13 @@ class Projector:
                 last_speed_mps=float(fields[6]),
             )
             for sumo_id, fields in payload["vehicles"].items()
+        }
+        self._signals = {
+            sumo_id: _SignalRecord(
+                phase_started_s=float(fields[0]),
+                green_started_s=None if fields[1] is None else float(fields[1]),
+                in_transition=bool(fields[2]),
+                phase_index=int(fields[3]),
+            )
+            for sumo_id, fields in payload["signals"].items()
         }

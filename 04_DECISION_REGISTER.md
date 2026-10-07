@@ -849,14 +849,30 @@ Preempting would violate invariant 3 of the T1.6 contract (every change is follo
 yellow and all-red) and is almost certainly unsafe; waiting means max green can be exceeded by
 up to `yellow_s + all_red_s`, which must then be documented rather than treated as a bug.
 
-**Provisional answer, to be confirmed at implementation:** the override waits, and the
-resulting overshoot is recorded in the run manifest so it is visible rather than silent. A
-maximum green that is "maximum plus one transition" is a real property of the system and
-belongs in the results document.
+**Closed 2026-08-18 by T1.7 — and the gap's premise did not hold.**
 
-This is recorded rather than quietly resolved because it is exactly the class of decision
-that `08_AGENT_HANDOFF_PROTOCOL.md` §8 requires a Builder to escalate, and the architect is
-subject to the same rule.
+`max_green_s` bounds the **green interval** (§8 invariant 2: "green never longer than
+`max_green_s`"). A green interval is by definition not running during a transition, so max-green
+expiry **cannot occur mid-transition** and the question has no reachable case. T1.7 implemented
+the waiting branch anyway and instrumented it — `ConstraintCounters.overrides_deferred_by_transition`
+increments if it ever fires, stays 0 under an adversarial 200 s run with `max_green_s = 4 s`
+against a 5 s clearance, and the property test asserts the same across every generated timing.
+Counting beats asserting unreachability.
+
+This rests on one reading, named here so it can be overruled: invariants 1 and 2 measure the
+**green interval only**. The alternative — measuring from when the phase became active,
+transition included — makes the gap reachable but makes invariants 1 and 2 **jointly
+unsatisfiable** whenever `max_green_s < yellow_s + all_red_s`, since the green would need
+negative length. That is why it is a finding rather than a choice.
+
+**The overshoot this entry originally described was the wrong quantity.** "Up to
+`yellow_s + all_red_s`" is a property of **service**, not of green: a phase forced off at max
+green still holds the intersection through its clearance, so the *next* green starts
+`max_green_s + yellow_s + all_red_s` later. That belongs in the results document as a property
+of the system. The overshoot `max_green_s` itself suffers is much smaller — up to one step
+length, when `max_green_s` does not fall on the step grid — and is recorded as
+`max_green_overshoot_s` (cumulative) and `max_green_worst_overshoot_s` (worst single event),
+because a total alone cannot distinguish one bad event from many negligible ones.
 
 **Revisit trigger.** The Δt sensitivity check shows steep dependence; or a controller family
 at M6/M7 needs an action space this interface cannot express.
