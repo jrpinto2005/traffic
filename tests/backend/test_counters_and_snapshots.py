@@ -135,6 +135,47 @@ def test_teleports_stay_zero_and_insertion_loss_is_what_fires(
     assert state.counters.insertion_failures == undeparted > 1000
 
 
+#: One car every 20 s on one approach: nothing can fail to insert. Explicit
+#: `<vehicle>` elements rather than a `<flow>`, because that is what `jtrrouter`
+#: emits and therefore what T1.5's demand files will contain.
+_TRICKLE_ROUTES = (
+    '<routes>\n    <vType id="passenger" vClass="passenger"/>\n'
+    '    <route id="n_s" edges="n_in s_out"/>\n'
+    + "".join(
+        f'    <vehicle id="v{t}" type="passenger" route="n_s" depart="{t}" departLane="0"/>\n'
+        for t in range(0, 600, 20)
+    )
+    + "</routes>\n"
+)
+
+
+@pytest.mark.parametrize("transport", ["traci", "libsumo"])
+def test_explicit_vehicles_not_yet_due_are_not_insertion_failures(
+    reference_net: Path, tmp_path: Path, transport: str
+) -> None:
+    """Regression: the counter was `loaded - departed`.
+
+    SUMO loads explicit vehicles up to `--route-steps` ahead of their departure,
+    so at this trivial load that difference read 6-8 phantom failures mid-run,
+    and -1 on the first step. D-008's primary validity gate would have fired on
+    demand that was being served perfectly.
+    """
+    routes = tmp_path / "trickle.rou.xml"
+    routes.write_text(_TRICKLE_ROUTES)
+
+    backend = SumoBackend()
+    backend.start(reference_net, routes, make_config(transport=transport))
+    try:
+        readings = []
+        for _ in range(300):
+            backend.step()
+            readings.append(backend.project().counters.insertion_failures)
+    finally:
+        backend.close()
+
+    assert set(readings) == {0}
+
+
 def test_gridlock_is_detected_after_the_configured_number_of_still_steps(
     reference_net: Path, tmp_path: Path
 ) -> None:

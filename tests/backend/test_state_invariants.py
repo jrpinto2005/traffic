@@ -95,8 +95,7 @@ def _raw_step(time_s: float, step: dict[str, tuple[str, float]]) -> RawStep:
         signals={},
         arrived_ids=(),
         teleports_ending=0,
-        loaded=0,
-        departed=0,
+        pending=0,
         arrived=0,
     )
 

@@ -104,8 +104,6 @@ class _CumulativeCounters:
     """Run-to-date totals behind `RunCounters`. Serialised into snapshot sidecars."""
 
     teleports: int = 0
-    loaded: int = 0
-    departed: int = 0
     arrived_at_sink: int = 0
     arrived_mid_link: int = 0
     motionless_steps: int = 0
@@ -457,8 +455,6 @@ class Projector:
     def _project_counters(self, raw: RawStep, vehicles: tuple[VehicleState, ...]) -> RunCounters:
         counters = self._counters
         counters.teleports += raw.teleports_ending
-        counters.loaded += raw.loaded
-        counters.departed += raw.departed
 
         # D-008 item 3: gridlock is "no vehicle has moved for N steps". An empty
         # network is not gridlocked, it is empty.
@@ -472,12 +468,16 @@ class Projector:
 
         return RunCounters(
             teleports=counters.teleports,
-            # Loaded but never departed. During a run this also counts vehicles
-            # legitimately still waiting for their scheduled departure; at run
-            # end it is the insertion loss D-008 gates on, and
+            # Vehicles that are due but could not be inserted: the backlog now,
+            # and at run end the insertion loss D-008 gates on (nothing is
+            # discarded, since no `--max-depart-delay` is set).
             # `--tripinfo-output.write-undeparted` gives T1.8 the per-vehicle
-            # record behind the number.
-            insertion_failures=counters.loaded - counters.departed,
+            # record behind the number. Not `loaded - departed`: SUMO loads
+            # explicit `<vehicle>` demand -- which is what `jtrrouter` emits for
+            # T1.5 -- up to `--route-steps` ahead of its departure time, so that
+            # difference counts vehicles that are not due yet, and it goes
+            # negative when loading happened before the first projected step.
+            insertion_failures=raw.pending,
             gridlock_detected=counters.gridlock_detected,
             arrived_at_sink=counters.arrived_at_sink,
             arrived_mid_link=counters.arrived_mid_link,
@@ -500,8 +500,6 @@ class Projector:
             "next_vehicle_id": self._next_vehicle_id,
             "counters": {
                 "teleports": self._counters.teleports,
-                "loaded": self._counters.loaded,
-                "departed": self._counters.departed,
                 "arrived_at_sink": self._counters.arrived_at_sink,
                 "arrived_mid_link": self._counters.arrived_mid_link,
                 "motionless_steps": self._counters.motionless_steps,

@@ -82,8 +82,8 @@ class RawStep(NamedTuple):
     signals: dict[str, RawSignal]
     arrived_ids: tuple[str, ...]
     teleports_ending: int
-    loaded: int
-    departed: int
+    pending: int
+    """Vehicles whose departure time has come but that SUMO could not insert yet."""
     arrived: int
 
 
@@ -219,8 +219,7 @@ _SIMULATION_VARS = (
     tc.VAR_DEPARTED_VEHICLES_IDS,
     tc.VAR_ARRIVED_VEHICLES_IDS,
     tc.VAR_TELEPORT_ENDING_VEHICLES_NUMBER,
-    tc.VAR_LOADED_VEHICLES_NUMBER,
-    tc.VAR_DEPARTED_VEHICLES_NUMBER,
+    tc.VAR_PENDING_VEHICLES,
     tc.VAR_ARRIVED_VEHICLES_NUMBER,
 )
 
@@ -317,8 +316,7 @@ class TraciTransport(_SumoTransport):
             signals=signals,
             arrived_ids=tuple(simulation_result[tc.VAR_ARRIVED_VEHICLES_IDS]),
             teleports_ending=simulation_result[tc.VAR_TELEPORT_ENDING_VEHICLES_NUMBER],
-            loaded=simulation_result[tc.VAR_LOADED_VEHICLES_NUMBER],
-            departed=simulation_result[tc.VAR_DEPARTED_VEHICLES_NUMBER],
+            pending=len(simulation_result[tc.VAR_PENDING_VEHICLES]),
             arrived=simulation_result[tc.VAR_ARRIVED_VEHICLES_NUMBER],
         )
 
@@ -374,7 +372,6 @@ class LibsumoTransport(_SumoTransport):
             signals=signals,
             arrived_ids=tuple(simulation.getArrivedIDList()),
             teleports_ending=simulation.getEndingTeleportNumber(),
-            loaded=simulation.getLoadedNumber(),
-            departed=simulation.getDepartedNumber(),
+            pending=len(simulation.getPendingVehicles()),
             arrived=simulation.getArrivedNumber(),
         )
