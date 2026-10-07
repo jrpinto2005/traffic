@@ -28,16 +28,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 TransportName = Literal["traci", "libsumo"]
 
-#: Speed below which SUMO — and therefore `VehicleState.is_halting` (D-025,
-#: `05_DOMAIN_MODEL.md` §8 invariant 11) — considers a vehicle halting.
-HALTING_SPEED_MPS = 0.1
-
-#: Continuous halting duration a vehicle must reach before it counts towards
-#: `LaneState.queue_count` (D-025, invariant 12). SUMO's native halting counter
-#: applies no duration condition, so this part is ours — see
-#: `research/M0_sumo_semantics.md` §1.3.
-QUEUE_MIN_HALTING_S = 1.0
-
 
 class BackendConfig(BaseModel):
     """Everything the adapter needs to launch and validate one SUMO simulation.
