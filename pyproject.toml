@@ -70,5 +70,12 @@ strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 
+# traci, libsumo and sumolib ship no type information. Only the backend package
+# may import them (`06_ARCHITECTURE.md` §10 rule 2), so the exemption is
+# confined to those three distributions rather than applied project-wide.
+[[tool.mypy.overrides]]
+module = ["traci.*", "traci", "libsumo.*", "libsumo", "sumolib.*", "sumolib"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
