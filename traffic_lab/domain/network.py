@@ -496,10 +496,9 @@ def _check_invariant_9(network: Network) -> None:
     `decision_interval_s <= min_green_s`, the invariant's third clause, is not
     checked here: `decision_interval_s` is not a field of `SignalTiming` (SS2.7)
     or anywhere else in the SS2-SS5 domain model T1.2 implements. It is the
-    constraint layer's own config field (`08_AGENT_HANDOFF_PROTOCOL.md` SS9's
-    worked T1.6 example), whose acceptance criteria already require T1.6 to
-    reject `decision_interval_s > min_green_s` at load. See the T1.2 completion
-    report.
+    constraint layer's own config field (T1.7, contract in
+    `08_AGENT_HANDOFF_PROTOCOL.md` SS9), checked at load by
+    `traffic_lab.control.constraint_layer.validate_decision_interval`.
     """
     for si in network.signalized_intersections:
         timing = si.timing
