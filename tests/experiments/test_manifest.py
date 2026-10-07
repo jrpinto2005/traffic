@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
+
+from traffic_lab.domain.state import RunCounters
 from traffic_lab.experiments.config import RunConfig, compute_config_hash
 from traffic_lab.experiments.manifest import build_manifest
 from traffic_lab.experiments.seeds import SEED_STREAMS
@@ -31,12 +34,29 @@ def test_manifest_records_all_seed_streams() -> None:
 def test_manifest_validity_and_trips_present_even_when_zero() -> None:
     """D-008 / D-022: counters are always recorded, even at zero — never omitted."""
     manifest = build_manifest(CONFIG, wall_clock_s=1.0, peak_memory_mb=10.0)
-    assert manifest.validity == {"teleports": 0, "insertion_failures": 0, "gridlock": False}
+    assert manifest.validity == {
+        "teleports": 0,
+        "insertion_failures": 0,
+        "gridlock_detected": False,
+    }
     assert manifest.trips == {
-        "boundary_sinks": 0,
-        "mid_link_arrivals": 0,
+        "arrived_at_sink": 0,
+        "arrived_mid_link": 0,
         "still_in_network": 0,
     }
+
+
+def test_manifest_counter_names_are_run_counters_field_names() -> None:
+    """One vocabulary for the six D-008 / D-022 counters, not two.
+
+    The runner fills `validity` and `trips` from `RunCounters`. If the names
+    differ it needs a mapping, and a typo in that mapping drops a validity
+    counter without failing anything.
+    """
+    manifest = build_manifest(CONFIG, wall_clock_s=1.0, peak_memory_mb=10.0)
+    run_counter_names = {field.name for field in dataclasses.fields(RunCounters)}
+    assert set(manifest.validity) | set(manifest.trips) == run_counter_names
+    assert set(manifest.validity).isdisjoint(manifest.trips)
 
 
 def test_manifest_warmup_design_follows_config() -> None:

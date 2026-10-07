@@ -42,11 +42,17 @@ class RunManifest(BaseModel):
     """D-032: whether each arm warmed up under its own controller or a shared snapshot."""
 
     validity: dict[str, int | bool]
-    """D-008 counters: `teleports` (int), `insertion_failures` (int), `gridlock` (bool)."""
+    """D-008 counters: `teleports` (int), `insertion_failures` (int),
+    `gridlock_detected` (bool)."""
 
     trips: dict[str, int]
-    """D-022 three-way trip accounting: `boundary_sinks`, `mid_link_arrivals`,
-    `still_in_network`."""
+    """D-022 three-way trip accounting: `arrived_at_sink`, `arrived_mid_link`,
+    `still_in_network`.
+
+    `validity` and `trips` together use exactly the field names of
+    `traffic_lab.domain.state.RunCounters` (`05_DOMAIN_MODEL.md` SS3.2), so the
+    runner copies counters across by name rather than through a translation
+    table in which a typo would drop a counter silently."""
 
     wall_clock_s: float
     """Wall-clock time this invocation took, in seconds."""
@@ -73,8 +79,8 @@ def build_manifest(config: RunConfig, *, wall_clock_s: float, peak_memory_mb: fl
         seeds=derive_seeds(config.master_seed),
         decision_interval_s={},
         warmup_design=config.warmup_design,
-        validity={"teleports": 0, "insertion_failures": 0, "gridlock": False},
-        trips={"boundary_sinks": 0, "mid_link_arrivals": 0, "still_in_network": 0},
+        validity={"teleports": 0, "insertion_failures": 0, "gridlock_detected": False},
+        trips={"arrived_at_sink": 0, "arrived_mid_link": 0, "still_in_network": 0},
         wall_clock_s=wall_clock_s,
         peak_memory_mb=peak_memory_mb,
     )
