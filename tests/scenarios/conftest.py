@@ -7,12 +7,19 @@ the file rather than against itself.
 
 from __future__ import annotations
 
+import subprocess
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+import sumolib
+
+from traffic_lab.domain.network import Network
+from traffic_lab.scenarios.parse import SumoIds
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+REFERENCE_DIR = REPO_ROOT / "spikes" / "M0_reference"
 
 #: The M0 probe: a four-way whose checked-in program has a permissive left
 #: (`research/M0_reference_scenario.md` SS4). Built by T0.2, committed.
@@ -60,3 +67,102 @@ def request_rows(net_file: Path) -> dict[str, list[tuple[str, str]]]:
 def foe_bit(bits: str, link: int) -> bool:
     """Bit `link` of a `foes`/`response` string, which runs right to left (D-023)."""
     return bits[len(bits) - 1 - link] == "1"
+
+
+@pytest.fixture(scope="session")
+def reference_net(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The M0 reference net, built into a temporary directory.
+
+    Built here rather than in `spikes/M0_reference/` so this session never races
+    `tests/backend/conftest.py`, which builds it in place.
+    """
+    out = tmp_path_factory.mktemp("reference") / "reference.net.xml"
+    subprocess.run(
+        [
+            sumolib.checkBinary("netconvert"),
+            "--node-files",
+            str(REFERENCE_DIR / "reference.nod.xml"),
+            "--edge-files",
+            str(REFERENCE_DIR / "reference.edg.xml"),
+            "--connection-files",
+            str(REFERENCE_DIR / "reference.con.xml"),
+            "--tllogic-files",
+            str(REFERENCE_DIR / "reference.tll.xml"),
+            "--output-file",
+            str(out),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return out
+
+
+@dataclass(frozen=True)
+class RawNet:
+    """What a net file contains, read with `xml.etree` alone."""
+
+    lanes: list[str]
+    junctions: dict[str, str]  # id -> type
+    normal_connections: list[tuple[str, str]]  # (from lane, to lane)
+    internal_connections: list[tuple[str, str]]
+    link_index: dict[tuple[str, str], int]  # controlled normal connection -> linkIndex
+
+
+def raw_net(net_file: Path) -> RawNet:
+    root = ET.parse(net_file).getroot()
+    lanes = [lane.get("id", "") for edge in root.iter("edge") for lane in edge.iter("lane")]
+    junctions = {j.get("id", ""): j.get("type", "") for j in root.iter("junction")}
+    normal: list[tuple[str, str]] = []
+    internal: list[tuple[str, str]] = []
+    link_index: dict[tuple[str, str], int] = {}
+    for c in root.iter("connection"):
+        lanes_of = (f"{c.get('from')}_{c.get('fromLane')}", f"{c.get('to')}_{c.get('toLane')}")
+        if c.get("from", "").startswith(":"):
+            internal.append(lanes_of)
+            continue
+        normal.append(lanes_of)
+        if c.get("linkIndex") is not None:
+            link_index[lanes_of] = int(c.get("linkIndex", "-1"))
+    return RawNet(lanes, junctions, normal, internal, link_index)
+
+
+def assert_round_trip(network: Network, ids: SumoIds, net_file: Path) -> None:
+    """Every SUMO lane and connection appears exactly once, by count and by ID.
+
+    Connections are counted as Amendment A2 defines them: a canonical
+    `LaneConnection` is a SUMO connection between two normal lanes; a SUMO
+    connection *out of* an internal lane is represented by that internal lane,
+    which must exist as a canonical lane with no successors.
+    """
+    raw = raw_net(net_file)
+
+    # Lanes: all of them, internal included, in sorted order; once each.
+    assert len(network.lanes) == len(raw.lanes) == len(set(raw.lanes))
+    assert ids.lanes == tuple(sorted(raw.lanes))
+    assert [int(lane.id) for lane in network.lanes] == list(range(len(raw.lanes)))
+    for lane in network.lanes:
+        assert ids.lanes[lane.id].rsplit("_", 1)[0] == ids.edges[lane.edge]
+
+    # Connections between normal lanes: once each.
+    assert len(network.connections) == len(raw.normal_connections)
+    assert sorted(ids.connections) == sorted(raw.normal_connections)
+    assert len(set(ids.connections)) == len(ids.connections)
+    for connection in network.connections:
+        assert (ids.lanes[connection.from_lane], ids.lanes[connection.to_lane]) == (
+            ids.connections[connection.id]
+        )
+
+    # Connections out of internal lanes: represented by the internal lane.
+    lanes = {ids.lanes[lane.id]: lane for lane in network.lanes}
+    for from_lane, _ in raw.internal_connections:
+        assert from_lane.startswith(":")
+        assert lanes[from_lane].successors == ()
+
+    # Junctions: every non-internal SUMO junction, sorted.
+    assert ids.junctions == tuple(sorted(j for j, t in raw.junctions.items() if t != "internal"))
+
+    # The display: position i is the connection SUMO numbers linkIndex i.
+    (intersection,) = network.signalized_intersections
+    assert len(intersection.controlled_connections) == len(raw.link_index)
+    for position, connection_id in enumerate(intersection.controlled_connections):
+        assert raw.link_index[ids.connections[connection_id]] == position
