@@ -1105,6 +1105,31 @@ one case the three-valued distinction exists for.
 case from the TLS program. Do **not** use `getLinks()` runtime state. Validate against a network
 that contains a permissive turn — `spikes/M0_verify/` builds one.
 
+**Seeding rule corrected 2026-10-07 — supersedes the table above.** The table reads each
+`<request>` row on its own and maps `foes=1, response=0` to `CONFLICTING`. Measured on the M0
+probe, the reference net and RESCO's `cologne1`: **every** foe pair has at least one side that
+yields (response bits `01`, `10` or `11`, never `00`). Read per row, every foe pair is therefore
+`CONFLICTING` in one direction and `PERMITTED` can never survive the both-directions check of
+invariant 7; read per pair, two crossing through movements look exactly like a permissive left
+against opposing through. `response` encodes **priority** — who yields if both are green — not
+whether two links may be green together. That is a signal-design choice, which SUMO keeps in the
+program (the `g` case), not in `<request>`.
+
+| `foes`, either direction | Scenario override | Entry `[a, b]` | Entry `[b, a]` |
+| --- | --- | --- | --- |
+| no | — | `COMPATIBLE` | `COMPATIBLE` |
+| yes | none | `CONFLICTING` | `CONFLICTING` |
+| yes | declared permitted | `PERMITTED` if `a` yields to `b` per `response`, else `COMPATIBLE` | the mirror |
+
+At M1 no scenario declares a permitted pair (point 4), so the matrix is binary in practice, as
+intended. Three reading traps, each verified: bit strings run **right to left** (the last
+character is link 0 — only that reading makes `foes` symmetric); a junction's `<request index>`
+and a traffic light's `linkIndex` are **different numberings** (they disagree on 4 of 16 links of
+the probe and 4 of 20 of `cologne1`); and netconvert **does not honour** `linkIndex` written in a
+`.con.xml`, which left the M0 reference program greening crossing movements together for seven
+weeks (`research/M0_reference_scenario.md`, correction). Movement-level entries aggregate their
+links' entries, most restrictive wins.
+
 **Revisit trigger.** A junction geometry appears that the three-valued matrix cannot express;
 or automatic phase enumeration becomes necessary for large imported networks at M8.
 
@@ -1602,7 +1627,7 @@ display alone cannot tell apart.
 
 | Version | Change |
 | --- | --- |
-| 1.6 | **Pre-issue review of T1.3 and T1.9, 2026-10-07.** Two decisions ratified by the owner. `D-033`: T1.9 as specified could not produce an exact oracle — detections had no lane, observations no signals, and Δt sampling loses `D-025`'s 1 s halting condition — so detections gain `lane` and `stationary_s`, and the estimator receives signal state from the constraint layer. `D-034`: once a controller drives a light, SUMO reports phase index 0 for good (`online` program), so `TrueState` signals are decoded from the displayed state string through a link order T1.3 produces; truth shows what the lights display, the constraint layer what was committed. |
+| 1.6 | **Pre-issue review of T1.3 and T1.9, 2026-10-07.** `D-023`'s seeding rule **corrected** by the architect on measurement: every SUMO foe pair has a yielding side, so `response` encodes priority, not permissibility; foes now seed `CONFLICTING` and `PERMITTED` comes only from a scenario override. Two decisions ratified by the owner. `D-033`: T1.9 as specified could not produce an exact oracle — detections had no lane, observations no signals, and Δt sampling loses `D-025`'s 1 s halting condition — so detections gain `lane` and `stationary_s`, and the estimator receives signal state from the constraint layer. `D-034`: once a controller drives a light, SUMO reports phase index 0 for good (`online` program), so `TrueState` signals are decoded from the displayed state string through a link order T1.3 produces; truth shows what the lights display, the constraint layer what was committed. |
 | 1.5 | **M0 audit and corrections, 2026-08-18.** An audit of the first-pass M0 write-ups found four defects, each re-verified before correcting. `D-031`'s subscription mandate **amended**: measured ~10× faster on TraCI but ~1.7× *slower* on LibSUMO, the transport intended for all heavy workloads; the invariant (one batched projection per step, no per-object access exposed) is kept, the mechanism becomes transport-specific. T0.3 had argued this away in its own write-up instead of escalating. `D-008` **priority reordered**: insertion loss, not teleporting, is the M1 threat — a demand sweep produced zero teleports while 22% of demand failed to insert. `D-025`: lane-area jam length is a **different measure** from the halting counter (disagreed on 230/600 steps), so the metres metric is reopened. `D-023`: the conflict matrix is seeded from static `<request>` `foes`/`response` plus the `G`/`g` case, **not** from runtime `getLinks()` state as first documented. |
 | 1.4 | **M0 findings applied, 2026-08-18.** `D-004` amended twice from T0.0: SUMO installs as the `eclipse-sumo` PyPI distribution pinned in `uv.lock` rather than a system package, and **pyarrow is excluded** after a reproduced ABI collision with libsumo that would have broken T1.11's runner on every run. From T0.1: `D-013`'s "11–13%" claim qualified (it is a synthetic-grid, best-of-100, unpaired-seed figure, and the same paper concludes MPLight diverges on realistic networks); `D-025` records the 1 s halting condition as a deliberate divergence from all surveyed prior art, with the consequence that RESCO's Max-Pressure and ours are not the same algorithm; `D-020` gains a legal-action mask adopted from PyTSC. |
 | 1.3 | **D-022 confirmed, 2026-08-18.** Owner confirmed the arrivals model, turn-ratio routing, and routing policy as formalised; no changes required. This unblocked `05_DOMAIN_MODEL.md`. Documents `05`, `06`, `07`, `08` written. `09_GLOSSARY.md` dropped — the canonical ↔ SUMO mapping lives in `05_DOMAIN_MODEL.md` §7, and a separate glossary would be a second place to drift. |
