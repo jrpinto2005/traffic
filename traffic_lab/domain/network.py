@@ -200,6 +200,10 @@ class SignalizedIntersection:
     signal_groups: tuple[SignalGroup, ...]  # invariant: len >= 2
     phases: tuple[Phase, ...]  # validated against the conflict matrix
     timing: SignalTiming
+    # The connections the signal displays, in the order of SUMO's red/yellow/green
+    # state string: position i is the connection with SUMO `linkIndex` i (D-034).
+    # It is what translates a canonical phase into a state string and back.
+    controlled_connections: tuple[LaneConnectionId, ...]
 
 
 # --- SS2.6 Movement -- a view, not an entity --------------------------------

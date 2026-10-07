@@ -321,6 +321,7 @@ def test_property_a_phase_with_a_conflicting_pair_is_always_rejected(
         signal_groups=groups,
         phases=(phase,),
         timing=timing,
+        controlled_connections=network.signalized_intersections[0].controlled_connections,
     )
     network = dataclasses.replace(
         network, junctions=junctions, signalized_intersections=(intersection,)

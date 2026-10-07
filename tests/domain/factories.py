@@ -56,6 +56,11 @@ C_W_TO_E = LaneConnectionId(3)
 # (S-in, THROUGH) -> 0, (N-in, THROUGH) -> 1, (E-in, THROUGH) -> 2, (W-in, THROUGH) -> 3.
 M_S, M_N, M_E, M_W = (MovementId(i) for i in range(4))
 
+# Display order (SUMO link index) deliberately differs from LaneConnectionId order,
+# so a test reading it cannot pass by accidentally assuming the two coincide:
+# link 0 = N->S, 1 = E->W, 2 = S->N, 3 = W->E.
+CONTROLLED_CONNECTIONS = (C_N_TO_S, C_E_TO_W, C_S_TO_N, C_W_TO_E)
+
 SG_NS = SignalGroupId(0)
 SG_EW = SignalGroupId(1)
 
@@ -148,6 +153,7 @@ def build_valid_network() -> Network:
         signal_groups=(sg_ns, sg_ew),
         phases=(phase_ns, phase_ew),
         timing=timing,
+        controlled_connections=CONTROLLED_CONNECTIONS,
     )
 
     boundary_junctions = tuple(
