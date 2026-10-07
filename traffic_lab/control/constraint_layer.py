@@ -596,8 +596,10 @@ class ConstraintLayer:
                 f"phase {request.phase} is not an authored phase of intersection "
                 f"{request.intersection}",
             )
-        pair = conflicting_pair(runtime.conflicts, movements)
-        if pair is not None:
+        if request.phase not in runtime.legal_phases:
+            # Legality was decided once, at construction. The pair is recomputed
+            # only here, on the refusal path, because D-023 requires naming it.
+            pair = conflicting_pair(runtime.conflicts, movements)
             return self._refuse(
                 runtime,
                 now_s,
