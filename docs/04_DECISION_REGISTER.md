@@ -1,7 +1,7 @@
 # Decision Register
 
 **Status:** Living document. Updated before the code that assumes a decision, never after.
-**Version:** 1.5 — see §6 for the change log
+**Version:** 1.6 — see §6 for the change log
 **Governed by:** `02_PROJECT_CHARTER.md`
 
 ---
@@ -74,6 +74,8 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-030](#d-030) | Trace format | OPEN | M2 |
 | [D-031](#d-031) | Efficiency and reuse posture | SETTLED | M1 |
 | [D-032](#d-032) | Initial-state snapshots | SETTLED | M1 |
+| [D-033](#d-033) | Detections carry lane and stationary time; estimator receives signals | SETTLED | M1 |
+| [D-034](#d-034) | `TrueState` signals decoded from SUMO's display | SETTLED | M1 |
 
 **M1 is fully unblocked.** Every decision it depends on is SETTLED. The three remaining open
 decisions — `D-021` (state estimation), `D-024` (objective function), `D-030` (trace format) —
@@ -1520,10 +1522,87 @@ a hard error rather than undefined behaviour.
 
 ---
 
+<a id="d-033"></a>
+### D-033 — Detections carry lane and stationary time; the estimator receives signal state
+
+**Status:** SETTLED — ratified by owner 2026-10-07 · **Source:** pre-issue review of T1.9
+
+**Problem.** As specified, T1.9 could not meet its own acceptance criterion — an identity
+estimator whose queue counts equal the true ones exactly. Three gaps:
+
+1. `Detection` carries a world position but no lane, and the domain model has no lane geometry
+   on which to place a position.
+2. `Observation` carries no signal state, yet `EstimatedState.signals` must be filled.
+3. The sensor runs every Δt, not every step (`06_ARCHITECTURE.md` §6.2). An estimator that
+   times halting from its own samples misses up to Δt of it, `D-025`'s ≥ 1 s condition then
+   disagrees with truth, and the oracle arm stops being an oracle.
+
+**Decision.**
+
+- `Detection` gains `lane: LaneId | None` — the sensor's lane assignment — and
+  `stationary_s: float | None` — how long the sensor has seen the vehicle stationary, `0.0`
+  while it moves. `None` means the sensor cannot provide it. Both are standard outputs of
+  traffic video analytics (lane-level presence, dwell time), and neither encodes the
+  parametric sensor model, so `D-005`'s constraint holds: a pixel pipeline fills them from its
+  own map-matching and tracker.
+- `Estimator.update(obs, signals, now_s)`. Signal state is passed in from the constraint
+  layer, because a controller knows what it commanded (`05_DOMAIN_MODEL.md` §4.2), and the
+  estimator copies it into `EstimatedState`, which is therefore built in one place.
+- `D-025`'s two thresholds (0.1 m/s, 1 s) move to `traffic_lab.domain.state`, so the backend,
+  the sensors and the estimators share one definition.
+
+**Consequence for M3.** Lane assignment and stationary time become things a camera can get
+wrong, which is where they belong: in the sensor model, measured against the oracle arm.
+
+**Rejected.** Lane geometry in the domain plus every-step sensing — more realistic
+map-matching, but it changes the step loop's cost structure for fidelity M1 does not need.
+Accepting an inexact oracle — forfeits sensor/estimator/control attribution, which is what the
+project is for.
+
+**Revisit trigger.** M3's camera model needs to report lane uncertainty as a distribution
+rather than a single lane.
+
+---
+
+<a id="d-034"></a>
+### D-034 — `TrueState` signals are decoded from what SUMO displays
+
+**Status:** SETTLED — ratified by owner 2026-10-07 · **Source:** T1.4 audit
+
+**Problem.** T1.4 projects `SignalState.active_phase` from SUMO's program phase index. Once a
+controller drives a light through `setRedYellowGreenState` — every M1 controller does, through
+the constraint layer — SUMO switches it to its `online` program, whose phase index is always 0
+(verified on 1.27.1), while `spent_duration` keeps counting from the switch. `TrueState.signals`
+is therefore meaningless in every controlled run.
+
+**Decision.** The backend decodes the displayed red/yellow/green string into canonical terms.
+
+- `SignalizedIntersection` gains `controlled_connections: tuple[LaneConnectionId, ...]`: the
+  connections its signal displays, in SUMO link-index order. Produced by the network generator
+  (T1.3).
+- A phase's green links follow from its movements. A display whose green link set equals a
+  phase's is that phase, green; any other display (yellow, all-red) is a transition.
+- **`TrueState` reports what the lights show; the constraint layer reports what has been
+  committed.** Outside transitions the two `SignalState`s are identical. During a transition
+  `TrueState` names the phase being left (`in_transition=True`, `green_started_s=None`) and the
+  constraint layer names the phase being entered. A phase's `phase_started_s` is the start of
+  the transition that led into it, in both views.
+
+Implemented by T1.14 on top of T1.3's link order.
+
+**Rejected.** Overwriting `TrueState.signals` with the constraint layer's view — simpler, but a
+defect in `apply()` would then be invisible to metrics, which exist to measure what happened.
+
+**Revisit trigger.** A scenario in which two phases display the same green link set, which the
+display alone cannot tell apart.
+
+---
+
 ## 6. Change log
 
 | Version | Change |
 | --- | --- |
+| 1.6 | **Pre-issue review of T1.3 and T1.9, 2026-10-07.** Two decisions ratified by the owner. `D-033`: T1.9 as specified could not produce an exact oracle — detections had no lane, observations no signals, and Δt sampling loses `D-025`'s 1 s halting condition — so detections gain `lane` and `stationary_s`, and the estimator receives signal state from the constraint layer. `D-034`: once a controller drives a light, SUMO reports phase index 0 for good (`online` program), so `TrueState` signals are decoded from the displayed state string through a link order T1.3 produces; truth shows what the lights display, the constraint layer what was committed. |
 | 1.5 | **M0 audit and corrections, 2026-08-18.** An audit of the first-pass M0 write-ups found four defects, each re-verified before correcting. `D-031`'s subscription mandate **amended**: measured ~10× faster on TraCI but ~1.7× *slower* on LibSUMO, the transport intended for all heavy workloads; the invariant (one batched projection per step, no per-object access exposed) is kept, the mechanism becomes transport-specific. T0.3 had argued this away in its own write-up instead of escalating. `D-008` **priority reordered**: insertion loss, not teleporting, is the M1 threat — a demand sweep produced zero teleports while 22% of demand failed to insert. `D-025`: lane-area jam length is a **different measure** from the halting counter (disagreed on 230/600 steps), so the metres metric is reopened. `D-023`: the conflict matrix is seeded from static `<request>` `foes`/`response` plus the `G`/`g` case, **not** from runtime `getLinks()` state as first documented. |
 | 1.4 | **M0 findings applied, 2026-08-18.** `D-004` amended twice from T0.0: SUMO installs as the `eclipse-sumo` PyPI distribution pinned in `uv.lock` rather than a system package, and **pyarrow is excluded** after a reproduced ABI collision with libsumo that would have broken T1.11's runner on every run. From T0.1: `D-013`'s "11–13%" claim qualified (it is a synthetic-grid, best-of-100, unpaired-seed figure, and the same paper concludes MPLight diverges on realistic networks); `D-025` records the 1 s halting condition as a deliberate divergence from all surveyed prior art, with the consequence that RESCO's Max-Pressure and ours are not the same algorithm; `D-020` gains a legal-action mask adopted from PyTSC. |
 | 1.3 | **D-022 confirmed, 2026-08-18.** Owner confirmed the arrivals model, turn-ratio routing, and routing policy as formalised; no changes required. This unblocked `05_DOMAIN_MODEL.md`. Documents `05`, `06`, `07`, `08` written. `09_GLOSSARY.md` dropped — the canonical ↔ SUMO mapping lives in `05_DOMAIN_MODEL.md` §7, and a separate glossary would be a second place to drift. |
