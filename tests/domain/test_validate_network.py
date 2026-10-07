@@ -34,7 +34,7 @@ from tests.domain.factories import (
 from traffic_lab.domain.network import (
     Compatibility,
     ConflictMatrix,
-    LaneId,
+    EdgeId,
     NetworkValidationError,
     Phase,
     PhaseId,
@@ -76,7 +76,7 @@ def test_invariant_2_lane_edge_reference_must_exist() -> None:
         for e in network.edges
     )
     lanes = tuple(
-        dataclasses.replace(lane, edge=LaneId(9999)) if lane.id == L_N_IN else lane
+        dataclasses.replace(lane, edge=EdgeId(9999)) if lane.id == L_N_IN else lane
         for lane in network.lanes
     )
     network = dataclasses.replace(network, edges=edges, lanes=lanes)
