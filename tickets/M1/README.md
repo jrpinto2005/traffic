@@ -20,14 +20,14 @@ Update it in the same commit that merges a ticket.
 | T1.6 snapshots | ⬜ **ready** |
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
 | T1.8 metrics | ⬜ **ready** |
-| T1.9 sensing, oracle | 🚧 issued 2026-10-07, amended contract (`D-033`) |
-| T1.10 controllers | ⬜ blocked on T1.9, T1.14 |
+| T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |
+| T1.10 controllers | ⬜ blocked on T1.14 |
 | T1.11 runner | ⬜ blocked on T1.8 |
 | T1.12 analysis | ⬜ blocked on T1.11 |
 | T1.13 profiling | ⬜ **ready** — T1.4's completion record has the baseline numbers |
 | T1.14 signal display | ⬜ blocked on T1.3 — added 2026-10-07 from T1.4's audit (`D-034`) |
 
-T1.3 and T1.9 are in flight. T1.6, T1.8 and T1.13 are ready. T1.14 closes `D-034` once T1.3
+T1.3 is in flight; T1.9 merged. T1.6, T1.8 and T1.13 are ready. T1.14 closes `D-034` once T1.3
 lands; T1.10 needs both T1.9 and T1.14, since a controller that cannot drive the display
 cannot run.
 
