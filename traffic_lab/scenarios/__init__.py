@@ -8,13 +8,16 @@ tooling, never a running simulation -- is allowed here (rule 2, clarified
 from __future__ import annotations
 
 from traffic_lab.scenarios.conflicts import NetworkCorrespondenceError
+from traffic_lab.scenarios.generator import NetconvertError, build
 from traffic_lab.scenarios.parse import SumoIds, parse_network
 from traffic_lab.scenarios.spec import IntersectionSpec, PhaseSpec
 
 __all__ = [
     "IntersectionSpec",
+    "NetconvertError",
     "NetworkCorrespondenceError",
     "PhaseSpec",
     "SumoIds",
+    "build",
     "parse_network",
 ]

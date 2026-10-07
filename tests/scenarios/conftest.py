@@ -7,6 +7,7 @@ the file rather than against itself.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -15,7 +16,9 @@ from pathlib import Path
 import pytest
 import sumolib
 
-from traffic_lab.domain.network import Network
+from traffic_lab.domain.network import Network, SignalTiming, TurnDirection
+from traffic_lab.scenarios import IntersectionSpec, PhaseSpec, build
+from traffic_lab.scenarios.generator import IDS_SUFFIX, NET_STEM
 from traffic_lab.scenarios.parse import SumoIds
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -124,6 +127,71 @@ def raw_net(net_file: Path) -> RawNet:
         if c.get("linkIndex") is not None:
             link_index[lanes_of] = int(c.get("linkIndex", "-1"))
     return RawNet(lanes, junctions, normal, internal, link_index)
+
+
+def load_ids(path: Path) -> SumoIds:
+    """Read the `<stem>.ids.json` mapping `build()` emits."""
+    raw = json.loads(path.read_text())
+    return SumoIds(
+        lanes=tuple(raw["lanes"]),
+        edges=tuple(raw["edges"]),
+        junctions=tuple(raw["junctions"]),
+        intersections=tuple(raw["intersections"]),
+        connections=tuple((a, b) for a, b in raw["connections"]),
+    )
+
+
+TIMING = SignalTiming(min_green_s=10.0, max_green_s=60.0, yellow_s=3.0, all_red_s=2.0)
+S, L, R = TurnDirection.THROUGH, TurnDirection.LEFT, TurnDirection.RIGHT
+
+#: The default four-way with the textbook protected plan: each axis's through and
+#: right turns, then its left turns.
+FOUR_WAY = IntersectionSpec(
+    phases=[
+        PhaseSpec(green=[(0, S), (0, R), (2, S), (2, R)]),
+        PhaseSpec(green=[(0, L), (2, L)]),
+        PhaseSpec(green=[(1, S), (1, R), (3, S), (3, R)]),
+        PhaseSpec(green=[(1, L), (3, L)]),
+    ],
+    timing=TIMING,
+)
+
+#: Three approaches at 0, 120 and 240 degrees: each has a right and a left turn and
+#: no through movement. Each approach is served alone.
+T_JUNCTION = IntersectionSpec(
+    approaches=3,
+    phases=[PhaseSpec(green=[(k, R), (k, L)]) for k in range(3)],
+    timing=TIMING,
+)
+
+
+@dataclass(frozen=True)
+class Built:
+    net: Path
+    network: Network
+    ids: SumoIds
+    spec: IntersectionSpec
+
+
+def _build(spec: IntersectionSpec, out_dir: Path) -> Built:
+    net, network = build(spec, out_dir)
+    return Built(net, network, load_ids(out_dir / f"{NET_STEM}{IDS_SUFFIX}"), spec)
+
+
+@pytest.fixture(scope="session")
+def four_way(tmp_path_factory: pytest.TempPathFactory) -> Built:
+    return _build(FOUR_WAY, tmp_path_factory.mktemp("four_way"))
+
+
+@pytest.fixture(scope="session")
+def t_junction(tmp_path_factory: pytest.TempPathFactory) -> Built:
+    return _build(T_JUNCTION, tmp_path_factory.mktemp("t_junction"))
+
+
+@pytest.fixture(scope="session", params=["four_way", "t_junction"])
+def generated(request: pytest.FixtureRequest) -> Built:
+    built: Built = request.getfixturevalue(request.param)
+    return built
 
 
 def assert_round_trip(network: Network, ids: SumoIds, net_file: Path) -> None:
