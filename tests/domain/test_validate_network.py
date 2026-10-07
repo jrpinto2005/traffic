@@ -98,9 +98,7 @@ def test_invariant_3_adjacent_lanes_must_share_an_edge() -> None:
     assert excinfo.value.invariant == 3
 
 
-def test_invariant_4_via_junction_connection_endpoints_must_be_in_the_junctions_lane_sets() -> (
-    None
-):
+def test_invariant_4_via_junction_connection_endpoints_must_be_in_the_junctions_lane_sets() -> None:
     network = build_valid_network()
     junctions = tuple(
         dataclasses.replace(j, incoming_lanes=tuple(x for x in j.incoming_lanes if x != L_S_IN))

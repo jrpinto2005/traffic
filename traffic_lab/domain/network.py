@@ -329,8 +329,7 @@ def _check_invariant_1(network: Network, lanes_by_id: dict[LaneId, Lane]) -> Non
             if lane_id in seen and seen[lane_id] != edge.id:
                 raise NetworkValidationError(
                     1,
-                    f"lane {lane_id} is listed under both edge {seen[lane_id]} "
-                    f"and edge {edge.id}",
+                    f"lane {lane_id} is listed under both edge {seen[lane_id]} and edge {edge.id}",
                 )
             seen[lane_id] = edge.id
 
@@ -363,8 +362,7 @@ def _check_invariant_3(network: Network, lanes_by_id: dict[LaneId, Lane]) -> Non
             if neighbour is None:
                 raise NetworkValidationError(
                     3,
-                    f"lane {lane.id}.{attr} references lane {neighbour_id}, "
-                    "which does not exist",
+                    f"lane {lane.id}.{attr} references lane {neighbour_id}, which does not exist",
                 )
             if neighbour.edge != lane.edge:
                 raise NetworkValidationError(
@@ -410,8 +408,7 @@ def _check_invariant_5(network: Network, edges_by_id: dict[EdgeId, Edge]) -> Non
         if opposite is None:
             raise NetworkValidationError(
                 5,
-                f"edge {edge.id}.opposite references edge {edge.opposite}, "
-                "which does not exist",
+                f"edge {edge.id}.opposite references edge {edge.opposite}, which does not exist",
             )
         if opposite.opposite != edge.id:
             raise NetworkValidationError(
@@ -483,8 +480,7 @@ def _check_invariant_9(network: Network) -> None:
         if not timing.min_green_s > 0:
             raise NetworkValidationError(
                 9,
-                f"intersection {si.id}.timing.min_green_s = {timing.min_green_s}, "
-                "must be > 0",
+                f"intersection {si.id}.timing.min_green_s = {timing.min_green_s}, must be > 0",
             )
         if not (timing.max_green_s == 0.0 or timing.max_green_s > timing.min_green_s):
             raise NetworkValidationError(
