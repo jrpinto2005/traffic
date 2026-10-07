@@ -21,8 +21,12 @@ lanes carry which turns is netconvert's default assignment for shared lanes
 (`turn_lanes=False`), recorded explicitly in the emitted `.con.xml`; no U-turn
 connections are generated (`--no-turnarounds`).
 
-**Warnings fail the build.** Any warning from netconvert raises. A warning
-nobody reads is how the M0 reference's crossing greens stayed hidden.
+**Warnings fail the build.** Any warning from netconvert raises: the generator
+is the only author of these files, so a warning about them is a generator
+defect, not noise. The converse does not hold -- SUMO runs a program that
+greens conflicting links without a single warning, because netconvert derives
+right-of-way from the loaded program (`tests/scenarios/test_link_order.py`).
+The program check above, not the absence of warnings, is the guard.
 """
 
 from __future__ import annotations
@@ -76,7 +80,6 @@ def build(spec: IntersectionSpec, out_dir: Path) -> tuple[Path, Network]:
     written to `out_dir`.
     """
     phases = [[(approach_in_edge(k), turn) for k, turn in phase.green] for phase in spec.phases]
-    out_dir.mkdir(parents=True, exist_ok=True)
     nodes = out_dir / f"{NET_STEM}.nod.xml"
     edges = out_dir / f"{NET_STEM}.edg.xml"
     connections = out_dir / f"{NET_STEM}.con.xml"
@@ -93,6 +96,7 @@ def build(spec: IntersectionSpec, out_dir: Path) -> tuple[Path, Network]:
         # `foes` is geometry and does not change when the program is added.
         draft, draft_ids = parse_network(draft_net, phases=phases, timing=spec.timing)
 
+    out_dir.mkdir(parents=True, exist_ok=True)
     _write_nodes(nodes, spec)
     _write_edges(edges, spec)
     _write_connections(connections, draft, draft_ids)

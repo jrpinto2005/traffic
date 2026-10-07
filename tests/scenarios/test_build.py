@@ -35,11 +35,12 @@ from traffic_lab.domain.network import (
 )
 from traffic_lab.scenarios import (
     IntersectionSpec,
+    NetconvertError,
     NetworkCorrespondenceError,
     PhaseSpec,
     build,
 )
-from traffic_lab.scenarios.generator import CENTER, IDS_SUFFIX, NET_STEM
+from traffic_lab.scenarios.generator import CENTER, IDS_SUFFIX, NET_STEM, _netconvert
 
 
 def test_build_emits_the_input_files_the_net_and_the_id_mapping(four_way: Built) -> None:
@@ -174,3 +175,14 @@ def test_five_approaches_cannot_be_represented(tmp_path: Path) -> None:
     spec = IntersectionSpec(approaches=5, phases=[PhaseSpec(green=[(0, S)])], timing=TIMING)
     with pytest.raises(NetworkCorrespondenceError, match="approach_0_in has 2 right exits"):
         build(spec, tmp_path)
+
+
+def test_a_netconvert_warning_fails_the_build(tmp_path: Path) -> None:
+    """The spec cannot express a zero speed limit, so `_netconvert` is fed one
+    directly: netconvert warns, and the warning is an error, not noise."""
+    nodes = tmp_path / "n.nod.xml"
+    nodes.write_text('<nodes><node id="a" x="0" y="0"/><node id="b" x="100" y="0"/></nodes>\n')
+    edges = tmp_path / "e.edg.xml"
+    edges.write_text('<edges><edge id="e" from="a" to="b" numLanes="1" speed="0"/></edges>\n')
+    with pytest.raises(NetconvertError, match="maximum allowed speed of 0"):
+        _netconvert(tmp_path / "out.net.xml", nodes, edges)
