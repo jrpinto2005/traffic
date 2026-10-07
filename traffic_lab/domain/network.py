@@ -291,6 +291,51 @@ def movements_of(
     )
 
 
+def green_link_indices(
+    network: Network, intersection_id: IntersectionId, phase_id: PhaseId
+) -> frozenset[int]:
+    """The SUMO link indices a phase shows green (D-034).
+
+    Phase -> its green signal groups -> their movements -> those movements'
+    connections -> each connection's position in
+    `SignalizedIntersection.controlled_connections`, which is its SUMO link
+    index. The one translation from canonical phases to positions in a
+    red/yellow/green state string: T1.3 writes the static program from it and
+    T1.14 decodes SUMO's display with it, so the two cannot disagree.
+
+    Movements are resolved with `movements_of()` (start_id 0), the numbering
+    `validate_network()` invariant 8 checks signal groups against.
+    """
+    intersection = _intersection(network, intersection_id)
+    phase = next((p for p in intersection.phases if p.id == phase_id), None)
+    if phase is None:
+        raise KeyError(f"intersection {intersection_id} has no phase {phase_id}")
+
+    groups = {g.id: g for g in intersection.signal_groups}
+    movements = {m.id: m for m in movements_of(network, intersection.junction)}
+    link_of = {conn: i for i, conn in enumerate(intersection.controlled_connections)}
+
+    links: set[int] = set()
+    for group_id in phase.green_groups:
+        for movement_id in groups[group_id].movements:
+            for conn_id in movements[movement_id].connections:
+                if conn_id not in link_of:
+                    raise ValueError(
+                        f"phase {phase_id} of intersection {intersection_id} greens movement "
+                        f"{movement_id}, whose connection {conn_id} the signal does not "
+                        f"display (not in controlled_connections)"
+                    )
+                links.add(link_of[conn_id])
+    return frozenset(links)
+
+
+def _intersection(network: Network, intersection_id: IntersectionId) -> SignalizedIntersection:
+    for intersection in network.signalized_intersections:
+        if intersection.id == intersection_id:
+            return intersection
+    raise KeyError(f"network has no signalized intersection {intersection_id}")
+
+
 # --- SS8 invariants ----------------------------------------------------------
 
 
