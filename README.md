@@ -8,16 +8,16 @@ realistic — with motorcycle-heavy traffic as a first-class concern rather than
 
 ---
 
-## Status: pre-implementation
+## Status: M1 in progress
 
-There is no code yet. This repository currently contains the research specification, the
-architecture, and the ticket set for the first two milestones.
+M0 is complete. M1, the founding slice, is being built ticket by ticket; per-ticket state is
+in [`tickets/M1/README.md`](tickets/M1/README.md).
 
 | | |
 | --- | --- |
-| **Now** | M0 — prior-art review, SUMO capability spikes, performance baseline |
-| **Next** | M1 — single intersection, oracle observation, honest baselines |
-| **Decisions settled** | 29 of 32 · [`04_DECISION_REGISTER.md`](04_DECISION_REGISTER.md) |
+| **Done** | M0 — prior art, SUMO spikes, performance baseline ([`research/`](research/)) |
+| **Now** | M1 — single intersection, oracle sensor, honest baselines |
+| **Decisions** | 24 settled · 4 deferred · 1 superseded · 3 open · [`04_DECISION_REGISTER.md`](docs/04_DECISION_REGISTER.md) |
 | **Open decisions** | D-021 (estimation, blocks M3) · D-024 (objective, blocks M6) · D-030 (trace format, blocks M2) |
 
 ### ▸ Headline result
@@ -60,15 +60,15 @@ The documents build on each other. Read them in this order; each says what it su
 
 | # | Document | What it answers |
 | --- | --- | --- |
-| 00 | [Research Specification](00_RESEARCH_SPECIFICATION.md) | The original vision. Partially superseded — read its header first. |
-| 01 | [Critical Review](01_CRITICAL_REVIEW.md) | What in that vision was contradictory, missing, or over-scoped. |
-| 02 | [Project Charter](02_PROJECT_CHARTER.md) | **Governs scope.** Deliverable, in/out, success criteria. |
-| 03 | [Roadmap](03_ROADMAP.md) | Milestones, each a vertical slice exiting on a result. |
-| 04 | [Decision Register](04_DECISION_REGISTER.md) | Every decision: settled, open, deferred, with revisit triggers. |
-| 05 | [Domain Model](05_DOMAIN_MODEL.md) | The canonical vocabulary and its mapping to SUMO. |
-| 06 | [Architecture](06_ARCHITECTURE.md) | Layers, the three seams, the observation boundary. |
-| 07 | [Experiment Methodology](07_EXPERIMENT_METHODOLOGY.md) | Metrics, seeds, statistics, validity. **Binding on every experiment.** |
-| 08 | [Agent Handoff Protocol](08_AGENT_HANDOFF_PROTOCOL.md) | How work is delegated without silently losing methodology. |
+| 00 | [Research Specification](docs/00_RESEARCH_SPECIFICATION.md) | The original vision. Partially superseded — read its header first. |
+| 01 | [Critical Review](docs/01_CRITICAL_REVIEW.md) | What in that vision was contradictory, missing, or over-scoped. |
+| 02 | [Project Charter](docs/02_PROJECT_CHARTER.md) | **Governs scope.** Deliverable, in/out, success criteria. |
+| 03 | [Roadmap](docs/03_ROADMAP.md) | Milestones, each a vertical slice exiting on a result. |
+| 04 | [Decision Register](docs/04_DECISION_REGISTER.md) | Every decision: settled, open, deferred, with revisit triggers. |
+| 05 | [Domain Model](docs/05_DOMAIN_MODEL.md) | The canonical vocabulary and its mapping to SUMO. |
+| 06 | [Architecture](docs/06_ARCHITECTURE.md) | Layers, the three seams, the observation boundary. |
+| 07 | [Experiment Methodology](docs/07_EXPERIMENT_METHODOLOGY.md) | Metrics, seeds, statistics, validity. **Binding on every experiment.** |
+| 08 | [Agent Handoff Protocol](docs/08_AGENT_HANDOFF_PROTOCOL.md) | How work is delegated without silently losing methodology. |
 
 **In a hurry?** Read 02 for what this is, then 04's index for what has been decided.
 
@@ -76,33 +76,54 @@ The documents build on each other. Read them in this order; each says what it su
 
 ## Repository layout
 
+Per [`D-014`](docs/04_DECISION_REGISTER.md#d-014). No directory exists before code goes into it.
+
 ```text
-00–08_*.md          the documents above
+docs/               the numbered documents above
 tickets/M0/         spike tickets — prior art, SUMO semantics, performance, footguns
-tickets/M1/         builder tickets — the founding vertical slice
+tickets/M1/         builder tickets — the founding vertical slice, with a status table
 research/           spike findings and per-milestone results documents
-spikes/             throwaway code from spikes; never imported by traffic_lab
-traffic_lab/        the package (does not exist yet — created by T1.1)
-configs/            experiment configurations
+spikes/             throwaway code from spikes; never imported, not linted
+traffic_lab/        the package: domain/, control/, experiments/ so far
+tests/              mirrors traffic_lab/, one directory per package
+configs/            experiment configurations (YAML)
 ```
 
 ---
 
 ## Getting started
 
-Not yet runnable. Once ticket [T0.0](tickets/M0/T0.0_environment.md) lands:
+SUMO installs from PyPI as the `eclipse-sumo` distribution, pinned in `uv.lock` — **not** from
+Homebrew, which fails on this machine (untrusted tap, and an Intel prefix whose SUMO would
+not load into an arm64 Python). `SUMO_HOME` is not needed. See
+[`research/M0_environment.md`](research/M0_environment.md).
 
 ```bash
-brew tap dlr-ts/sumo && brew install sumo
-curl -LsSf https://astral.sh/uv/install.sh | sh
-export SUMO_HOME="$(brew --prefix sumo)/share/sumo"
-python -c "import traci, libsumo, sumolib; print('ok')"
+curl -LsSf https://astral.sh/uv/install.sh | sh   # installs to ~/.local/bin
 uv sync
+uv run python -c "import traci, libsumo, sumolib; print('ok')"
+uv run traffic-lab run configs/smoke.yaml
 ```
 
-`libsumo` is not optional — [D-002](04_DECISION_REGISTER.md#d-002) depends on it for roughly
-a 10× speedup on the simulation call path, which is what makes large seed sweeps and RL
-training affordable.
+`libsumo` is not optional — [D-002](docs/04_DECISION_REGISTER.md#d-002) depends on it for
+roughly a 10× speedup on the simulation call path, which is what makes large seed sweeps and
+RL training affordable. **Never add `pyarrow`**: it collides with libsumo's bundled libarrow
+([D-004](docs/04_DECISION_REGISTER.md#d-004)), and a test fails if it is installed.
+
+### Checks
+
+What every ticket's Definition of Done means by "the checks pass":
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy
+uv run pytest
+```
+
+`mypy` is strict over `traffic_lab/` and `tests/` from `pyproject.toml`; no flags needed.
+Parallel agents each work in their own git worktree with their own `uv sync`
+([`08_AGENT_HANDOFF_PROTOCOL.md`](docs/08_AGENT_HANDOFF_PROTOCOL.md) §5.1).
 
 ---
 
@@ -130,4 +151,4 @@ would stop being research without:
 This project does **not** build a microsimulator, does not process camera pixels (a reserved
 extension point, not a current goal), and does not calibrate against real Bogotá measurements.
 Every claim it makes is about the simulated environment. See
-[charter §7.2](02_PROJECT_CHARTER.md) for the full list and the reasoning.
+[charter §7.2](docs/02_PROJECT_CHARTER.md) for the full list and the reasoning.

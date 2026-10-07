@@ -131,7 +131,7 @@ def run_steps(
     layer: ConstraintLayer,
     times_s: Sequence[float],
     *,
-    on_step: Callable[[float], None] | None = None,
+    on_step: Callable[[float], object] | None = None,
 ) -> list[PhaseId | None]:
     """Call `step()` at each simulated time, returning the green phase after each.
 

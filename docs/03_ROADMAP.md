@@ -128,7 +128,9 @@ pays the full setup cost; it must be split into tickets (see §"Ticket decomposi
 
 - One four-way signalized intersection, synthetically generated from a config.
 - Stationary Poisson arrivals per approach, seeded, fixed routes, cars only.
-- Oracle observation: controllers see true state. No sensor model yet.
+- Oracle observation **through a sensor**: the oracle is a sensor, not a bypass
+  (`06_ARCHITECTURE.md` §4.1), so controllers read `EstimatedState` from the first commit
+  and never `TrueState`. No imperfect sensor model yet.
 - Identity estimation: observation passes through unchanged.
 - Controllers: **Webster fixed-time**, **actuated (ours)**, **SUMO gap-actuated**,
   **Max-Pressure**.
@@ -172,23 +174,29 @@ pays the full setup cost; it must be split into tickets (see §"Ticket decomposi
 
 **Ticket decomposition** (contracts frozen before any ticket is issued)
 
+**Authoritative list, order and status: `tickets/M1/README.md`.** This table was renumbered
+on 2026-08-18 when the tickets were written: domain types became their own ticket (T1.2),
+the projection folded into the adapter (T1.4), and sensing was added (T1.9) because the
+original list let controllers read true state, which `06_ARCHITECTURE.md` §4.1 forbids.
+
 | Ticket | Deliverable | Depends on |
 | --- | --- | --- |
-| T1.1 | Package skeleton, config loading, run manifest | `D-004`, `D-014` |
-| T1.2 | Network generator: parametric single intersection → SUMO net | `D-023` |
-| T1.3 | Demand generator: Poisson sources, turning ratios, per-edge attrition, sinks | `D-022` |
-| T1.4 | Backend adapter: transport-agnostic, subscription-based reads, TraCI first | `D-002`, `D-003`, `D-031` |
-| T1.4b | State snapshots: save after warm-up, load on run start, network-hash guard | `D-032` |
-| T1.5 | Domain projection: read true state into canonical types | `D-003`, `D-010`, `D-011` |
-| T1.6 | Action interface + constraint layer (min/max green, yellow, all-red) | `D-020` |
-| T1.7 | Metrics: pinned definitions, warm-up, measurement window, validity checks | `D-006`, `D-018`, `D-025` |
-| T1.8 | Controllers: Webster, actuated, Max-Pressure | T1.5, T1.6 |
-| T1.9 | Experiment runner: sweeps, seeds, parquet output, process-level parallelism | T1.1, T1.7, `D-031` |
-| T1.10 | Analysis: paired comparison, CIs, the headline figure | T1.9, `D-017` |
-| T1.11 | Profiling harness + performance baseline recorded against M0 | `D-031` |
+| T1.1 | Package skeleton, configuration, run manifest | T0.0 · `D-004`, `D-014` |
+| T1.2 | Domain types and invariant validators | T0.0 |
+| T1.3 | Parametric single-intersection network generator | T1.2, T0.2 · `D-010`, `D-023` |
+| T1.4 | Backend adapter: transport, subscriptions, projection | T1.2, T0.3 · `D-002`, `D-003`, `D-008`, `D-031` |
+| T1.5 | Demand: sources, turn ratios, attrition, sinks | T1.3, T0.5 · `D-022`, `D-017` |
+| T1.6 | Initial-state snapshots | T1.4 · `D-032`, `D-018` |
+| T1.7 | Action interface and constraint layer | T1.2 · `D-020`, `D-023`, `D-010` |
+| T1.8 | Metrics, validity checks, and run phases | T1.2, T1.4, T0.4, T0.5 |
+| T1.9 | Sensing interface, oracle sensor, identity estimator | T1.2 · `D-005`, `D-021` |
+| T1.10 | Baseline controllers: Webster, actuated, Max-Pressure | T1.7, T1.9 · `D-013`, `D-020` |
+| T1.11 | Experiment runner: sweeps, seeds, parallelism | T1.1, T1.8 · `D-017`, `D-031`, `D-008` |
+| T1.12 | Analysis: paired comparison, intervals, the headline figure | T1.11 · `D-017` |
+| T1.13 | Profiling harness and performance baseline | T1.4 · `D-031` |
 
-**Non-goals:** no sensor model, no custom renderer, no MPC, no RL, no second intersection,
-no motorcycles, no lane changing beyond SUMO defaults, no route choice.
+**Non-goals:** no imperfect sensor model, no custom renderer, no MPC, no RL, no second
+intersection, no motorcycles, no lane changing beyond SUMO defaults, no route choice.
 
 ---
 

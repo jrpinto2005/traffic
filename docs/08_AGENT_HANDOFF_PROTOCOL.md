@@ -421,6 +421,11 @@ contracts are perfect.
 A complete ticket, written to the template. Reproduced in full because the template is
 easier to follow from an example than from a description.
 
+> **Numbering.** This example predates the M1 renumbering and was issued as **T1.7**
+> (`tickets/M1/T1.7_constraint_layer.md`), which records what changed since. Inside the
+> example, read *T1.6* as T1.7 and *T1.5 (domain projection)* as T1.2 (domain types). The
+> text is left as written because T1.7 cites it as its contract.
+
 ---
 
 ```markdown

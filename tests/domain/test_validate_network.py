@@ -34,7 +34,7 @@ from tests.domain.factories import (
 from traffic_lab.domain.network import (
     Compatibility,
     ConflictMatrix,
-    LaneId,
+    EdgeId,
     NetworkValidationError,
     Phase,
     PhaseId,
@@ -76,7 +76,7 @@ def test_invariant_2_lane_edge_reference_must_exist() -> None:
         for e in network.edges
     )
     lanes = tuple(
-        dataclasses.replace(lane, edge=LaneId(9999)) if lane.id == L_N_IN else lane
+        dataclasses.replace(lane, edge=EdgeId(9999)) if lane.id == L_N_IN else lane
         for lane in network.lanes
     )
     network = dataclasses.replace(network, edges=edges, lanes=lanes)
@@ -98,9 +98,7 @@ def test_invariant_3_adjacent_lanes_must_share_an_edge() -> None:
     assert excinfo.value.invariant == 3
 
 
-def test_invariant_4_via_junction_connection_endpoints_must_be_in_the_junctions_lane_sets() -> (
-    None
-):
+def test_invariant_4_via_junction_connection_endpoints_must_be_in_the_junctions_lane_sets() -> None:
     network = build_valid_network()
     junctions = tuple(
         dataclasses.replace(j, incoming_lanes=tuple(x for x in j.incoming_lanes if x != L_S_IN))
@@ -148,6 +146,44 @@ def test_invariant_7_phase_with_a_conflicting_pair_is_rejected() -> None:
         for si in network.signalized_intersections
     )
     network = dataclasses.replace(network, signalized_intersections=intersections)
+    with pytest.raises(NetworkValidationError) as excinfo:
+        validate_network(network)
+    assert excinfo.value.invariant == 7
+
+
+def test_invariant_7_reads_a_conflict_recorded_in_either_direction() -> None:
+    """A pair is CONFLICTING if either matrix entry says so.
+
+    Regression: invariant 7 used to read only the upper triangle, while the
+    constraint layer read both. A conflict recorded only as (M_E, M_S) passed
+    validation and then had its phase silently rejected on every request.
+    """
+    network = build_valid_network()
+    junction = next(j for j in network.junctions if j.id == J0)
+    matrix = junction.conflicts.matrix.copy()
+    # M_E joins the north-south phase. Against M_N it is compatible both ways;
+    # against M_S the conflict is recorded only in the (M_E, M_S) entry.
+    matrix[M_N, M_E] = matrix[M_E, M_N] = Compatibility.COMPATIBLE
+    matrix[M_S, M_E] = Compatibility.COMPATIBLE
+    matrix[M_E, M_S] = Compatibility.CONFLICTING
+    junction = dataclasses.replace(
+        junction, conflicts=dataclasses.replace(junction.conflicts, matrix=matrix)
+    )
+    si = network.signalized_intersections[0]
+    sg_ns, sg_ew = si.signal_groups
+    si = dataclasses.replace(
+        si,
+        signal_groups=(
+            dataclasses.replace(sg_ns, movements=(*sg_ns.movements, M_E)),
+            dataclasses.replace(sg_ew, movements=(M_W,)),
+        ),
+    )
+    network = dataclasses.replace(
+        network,
+        junctions=tuple(junction if j.id == J0 else j for j in network.junctions),
+        signalized_intersections=(si,),
+    )
+
     with pytest.raises(NetworkValidationError) as excinfo:
         validate_network(network)
     assert excinfo.value.invariant == 7
