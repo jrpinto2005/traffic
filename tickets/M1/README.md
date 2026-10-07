@@ -4,6 +4,31 @@ The founding slice (`03_ROADMAP.md` M1). Every layer exists in thin form and the
 produces the project's first real result: mean delay vs. demand for four controllers, on
 paired seeds, with confidence intervals.
 
+## Status, 2026-10-07
+
+**This table is the one place M1 status is recorded.** Tickets carry no status line of their
+own, for the reason the glossary was dropped: a second copy is a second place to drift.
+Update it in the same commit that merges a ticket.
+
+| Ticket | State |
+| --- | --- |
+| T1.1 skeleton | ✅ merged 2026-08-18 |
+| T1.2 domain types | ✅ merged 2026-08-18 |
+| T1.3 network generator | ⬜ **ready** — wave 3 was killed before it produced anything |
+| T1.4 backend adapter | 🚧 in progress on `worktree-agent-a73422e62d880c580`. A merge of `master` into it was left resolved but **uncommitted** on 2026-08-24. Has not passed acceptance. |
+| T1.5 demand | ⬜ blocked on T1.3 |
+| T1.6 snapshots | ⬜ blocked on T1.4 |
+| T1.7 constraint layer | ✅ merged 2026-08-24 |
+| T1.8 metrics | ⬜ blocked on T1.4 |
+| T1.9 sensing, oracle | ⬜ **ready** — wave 3 was killed before it produced anything |
+| T1.10 controllers | ⬜ blocked on T1.9 |
+| T1.11 runner | ⬜ blocked on T1.8 |
+| T1.12 analysis | ⬜ blocked on T1.11 |
+| T1.13 profiling | ⬜ blocked on T1.4 |
+
+**T1.4 is the bottleneck:** four tickets wait on it. T1.3 and T1.9 can start in parallel with
+it today.
+
 ## A correction to the roadmap's ticket list
 
 The roadmap listed ten M1 tickets and **none of them was sensing**, on the reasoning that M1
@@ -53,3 +78,7 @@ lands**. The critical path is narrow and unavoidable:
 
 M0 must be complete. Its spikes can amend `D-002`, `D-022` and `D-025`, and three of these
 tickets are written against those decisions as currently stated.
+
+**Satisfied:** M0 is complete (`tickets/M0/README.md`). Its amendments are in the register's
+change log at v1.4 and v1.5. Read a ticket's decision references against the register as
+amended, and escalate if the two disagree.
