@@ -14,20 +14,22 @@ Update it in the same commit that merges a ticket.
 | --- | --- |
 | T1.1 skeleton | ✅ merged 2026-08-18 |
 | T1.2 domain types | ✅ merged 2026-08-18 |
-| T1.3 network generator | ⬜ **ready** — wave 3 was killed before it produced anything |
+| T1.3 network generator | 🚧 issued 2026-10-07, amended contract (corrected `D-023` rule, `D-034`) |
 | T1.4 backend adapter | ✅ merged 2026-10-07 — audited; one defect fixed; four gaps handed to T1.3, T1.8, T1.9 (see the ticket's completion record) |
 | T1.5 demand | ⬜ blocked on T1.3 |
 | T1.6 snapshots | ⬜ **ready** |
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
 | T1.8 metrics | ⬜ **ready** |
-| T1.9 sensing, oracle | ⬜ **ready** — wave 3 was killed before it produced anything |
-| T1.10 controllers | ⬜ blocked on T1.9 |
+| T1.9 sensing, oracle | 🚧 issued 2026-10-07, amended contract (`D-033`) |
+| T1.10 controllers | ⬜ blocked on T1.9, T1.14 |
 | T1.11 runner | ⬜ blocked on T1.8 |
 | T1.12 analysis | ⬜ blocked on T1.11 |
 | T1.13 profiling | ⬜ **ready** — T1.4's completion record has the baseline numbers |
+| T1.14 signal display | ⬜ blocked on T1.3 — added 2026-10-07 from T1.4's audit (`D-034`) |
 
-**Five tickets are ready and independent of each other:** T1.3, T1.6, T1.8, T1.9 and T1.13.
-T1.3 carries an extra obligation from T1.4's audit — the SUMO ↔ canonical phase mapping.
+T1.3 and T1.9 are in flight. T1.6, T1.8 and T1.13 are ready. T1.14 closes `D-034` once T1.3
+lands; T1.10 needs both T1.9 and T1.14, since a controller that cannot drive the display
+cannot run.
 
 ## A correction to the roadmap's ticket list
 
