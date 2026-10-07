@@ -28,6 +28,8 @@ the boundary cannot go quiet because the detector stopped seeing things.
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -162,6 +164,34 @@ def test_package_depends_only_on_domain(package_name: str) -> None:
         if (hit := _dependency_violations(imports, f"traffic_lab.{package_name}"))
     }
     assert not violations, f"{package_name}/ imports outside domain: {violations}"
+
+
+@pytest.mark.parametrize("package_name", PACKAGES)
+def test_importing_the_package_loads_no_backend_transitively(package_name: str) -> None:
+    """The runtime counterpart, over the whole import closure rather than each file's own lines.
+
+    A fresh interpreter imports every module of the package and lists what that
+    pulled in. The AST tests catch a module naming a forbidden import; this
+    catches one arriving through something the package does import, which is what
+    "transitively" in `06_ARCHITECTURE.md` SS4.3 asks for.
+    """
+    code = (
+        "import importlib, pkgutil, sys\n"
+        f"package = importlib.import_module('traffic_lab.{package_name}')\n"
+        "for info in pkgutil.walk_packages(package.__path__, package.__name__ + '.'):\n"
+        "    importlib.import_module(info.name)\n"
+        "print(sorted(\n"
+        "    name for name in sys.modules\n"
+        "    if name.split('.')[0] in {'traci', 'libsumo', 'sumolib'}\n"
+        "    or name == 'traffic_lab.backend' or name.startswith('traffic_lab.backend.')\n"
+        "))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert result.stdout.strip() == "[]", (
+        f"importing traffic_lab.{package_name} loads a backend: {result.stdout.strip()}"
+    )
 
 
 # --- the boundaries are not vacuous ---------------------------------------------------
