@@ -15,6 +15,7 @@ lookup (SS1.2, D-031).
 from __future__ import annotations
 
 import itertools
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from typing import NewType
@@ -128,6 +129,31 @@ def compatibility(matrix: ConflictMatrix, a: MovementId, b: MovementId) -> Compa
     """
     index = {m: i for i, m in enumerate(matrix.movements)}
     return Compatibility(int(matrix.matrix[index[a], index[b]]))
+
+
+def conflicting_pair(
+    conflicts: ConflictMatrix, movements: Iterable[MovementId]
+) -> tuple[MovementId, MovementId] | None:
+    """The first `CONFLICTING` pair among `movements`, or `None` if there is none.
+
+    The one definition of "these movements may not be green together", shared by
+    `validate_network()` (invariant 7, at load) and the constraint layer (at
+    request time) so the two cannot disagree. Returns the pair rather than a bool
+    because D-023 requires the error to name it.
+
+    A pair conflicts if **either** direction of the matrix says `CONFLICTING`.
+    Only `PERMITTED` is meant to be asymmetric (SS2.5), but nothing enforces
+    that, and a matrix seeded from SUMO's `foes`/`response` need not be
+    symmetric. `PERMITTED` is not a conflict: such a movement may run
+    simultaneously and yields (D-023).
+    """
+    index = {m: i for i, m in enumerate(conflicts.movements)}
+    matrix = conflicts.matrix
+    for a, b in itertools.combinations(sorted(movements), 2):
+        i, j = index[a], index[b]
+        if Compatibility.CONFLICTING in (int(matrix[i, j]), int(matrix[j, i])):
+            return (a, b)
+    return None
 
 
 # --- SS2.4 Junction and SignalizedIntersection ------------------------------
@@ -438,13 +464,13 @@ def _check_invariant_7(network: Network, junctions_by_id: dict[JunctionId, Junct
             movements_in_phase: set[MovementId] = set()
             for group_id in phase.green_groups:
                 movements_in_phase.update(groups_by_id[group_id].movements)
-            for a, b in itertools.combinations(sorted(movements_in_phase), 2):
-                if compatibility(junction.conflicts, a, b) is Compatibility.CONFLICTING:
-                    raise NetworkValidationError(
-                        7,
-                        f"phase {phase.id} of intersection {si.id} contains "
-                        f"conflicting movement pair ({a}, {b})",
-                    )
+            pair = conflicting_pair(junction.conflicts, movements_in_phase)
+            if pair is not None:
+                raise NetworkValidationError(
+                    7,
+                    f"phase {phase.id} of intersection {si.id} contains "
+                    f"conflicting movement pair {pair}",
+                )
 
 
 def _check_invariant_8(network: Network, junctions_by_id: dict[JunctionId, Junction]) -> None:

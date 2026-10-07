@@ -151,6 +151,44 @@ def test_invariant_7_phase_with_a_conflicting_pair_is_rejected() -> None:
     assert excinfo.value.invariant == 7
 
 
+def test_invariant_7_reads_a_conflict_recorded_in_either_direction() -> None:
+    """A pair is CONFLICTING if either matrix entry says so.
+
+    Regression: invariant 7 used to read only the upper triangle, while the
+    constraint layer read both. A conflict recorded only as (M_E, M_S) passed
+    validation and then had its phase silently rejected on every request.
+    """
+    network = build_valid_network()
+    junction = next(j for j in network.junctions if j.id == J0)
+    matrix = junction.conflicts.matrix.copy()
+    # M_E joins the north-south phase. Against M_N it is compatible both ways;
+    # against M_S the conflict is recorded only in the (M_E, M_S) entry.
+    matrix[M_N, M_E] = matrix[M_E, M_N] = Compatibility.COMPATIBLE
+    matrix[M_S, M_E] = Compatibility.COMPATIBLE
+    matrix[M_E, M_S] = Compatibility.CONFLICTING
+    junction = dataclasses.replace(
+        junction, conflicts=dataclasses.replace(junction.conflicts, matrix=matrix)
+    )
+    si = network.signalized_intersections[0]
+    sg_ns, sg_ew = si.signal_groups
+    si = dataclasses.replace(
+        si,
+        signal_groups=(
+            dataclasses.replace(sg_ns, movements=(*sg_ns.movements, M_E)),
+            dataclasses.replace(sg_ew, movements=(M_W,)),
+        ),
+    )
+    network = dataclasses.replace(
+        network,
+        junctions=tuple(junction if j.id == J0 else j for j in network.junctions),
+        signalized_intersections=(si,),
+    )
+
+    with pytest.raises(NetworkValidationError) as excinfo:
+        validate_network(network)
+    assert excinfo.value.invariant == 7
+
+
 def test_invariant_8_every_movement_must_belong_to_exactly_one_signal_group() -> None:
     network = build_valid_network()
     # Drop M_W from every signal group: it now belongs to zero groups.
