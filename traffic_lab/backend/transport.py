@@ -30,7 +30,7 @@ same `RawStep`, and all projection logic lives in `projection.py` downstream of
 it, so that test exercises precisely the part that differs.
 
 `traci` and `libsumo` are imported here and in no other package
-(`06_ARCHITECTURE.md` §10 rule 2, asserted by `tests/backend/test_import_boundary.py`).
+(`06_ARCHITECTURE.md` §10 rule 2, asserted by `tests/backend/test_backend_import_boundary.py`).
 """
 
 from __future__ import annotations
