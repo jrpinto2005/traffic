@@ -21,7 +21,7 @@ Update it in the same commit that merges a ticket.
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
 | T1.8 metrics | ✅ merged 2026-10-07 — see the completion record |
 | T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |
-| T1.10 controllers | ⬜ **ready** — amendment pending (`D-033`, `D-036`, `D-037`) |
+| T1.10 controllers | ⬜ amended 2026-10-08; issued once T1.11 merges (it defines the `Controller` protocol) |
 | T1.11 runner | 🚧 issued 2026-10-07 — split: the run core now; sweep expansion moved to T1.16 |
 | T1.12 analysis | ⬜ blocked on T1.11 |
 | T1.13 profiling | ⬜ **ready** — T1.4's completion record has the baseline numbers |
