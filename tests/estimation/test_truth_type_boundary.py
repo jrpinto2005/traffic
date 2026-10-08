@@ -20,6 +20,7 @@ from mypy import api
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 _HEADER = """
+from traffic_lab.domain.network import Network
 from traffic_lab.domain.observation import EstimatedState, Observation
 from traffic_lab.domain.state import SignalState, TrueState
 from traffic_lab.estimation import Estimator, IdentityEstimator
@@ -113,7 +114,11 @@ class SeesObservations:
 
 
 estimator: Estimator = SeesObservations()
-identity: Estimator = IdentityEstimator()
+
+
+def make_identity(network: Network) -> Estimator:
+    return IdentityEstimator(network)
+
 """,
     )
     assert status == 0, out

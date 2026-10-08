@@ -19,7 +19,7 @@ def test_detection_lane_and_stationary_time_are_optional_sensor_outputs() -> Non
     # D-033: both are things a sensor can fail to provide, and `None` says so.
     # Neither is a parameter of the parametric sensor model, so D-005 still holds.
     fields = Detection.__dataclass_fields__
-    assert {"lane", "stationary_s"} <= fields.keys()
+    assert {"lane", "stationary_s", "distance_to_stop_m"} <= fields.keys()
     untracked = Detection(
         sensor=SensorId(0),
         observed_at_s=1.0,
@@ -32,6 +32,7 @@ def test_detection_lane_and_stationary_time_are_optional_sensor_outputs() -> Non
         track_id=None,
         lane=None,
         stationary_s=None,
+        distance_to_stop_m=None,
     )
     assert untracked.lane is None
     assert untracked.stationary_s is None
@@ -50,6 +51,7 @@ def test_observation_lanes_distinguish_covered_from_uncovered() -> None:
         track_id=None,
         lane=LaneId(0),
         stationary_s=0.0,
+        distance_to_stop_m=12.0,
     )
     observation = Observation(
         received_at_s=1.1,
@@ -66,6 +68,7 @@ def test_lane_estimate_queue_count_is_a_float_with_uncertainty() -> None:
         queue_count_std=0.7,
         last_observed_s=10.0,
         vehicle_count=4.0,
+        zone_count=1.0,
     )
     assert isinstance(estimate.queue_count, float)
     assert estimate.last_observed_s == 10.0
@@ -78,6 +81,7 @@ def test_estimated_state_never_observed_lane_has_none_last_observed() -> None:
         queue_count_std=0.0,
         last_observed_s=None,
         vehicle_count=0.0,
+        zone_count=0.0,
     )
     signal = SignalState(
         intersection=IntersectionId(0),
