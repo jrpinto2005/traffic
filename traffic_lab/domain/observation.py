@@ -34,6 +34,7 @@ class Detection:
     track_id: int | None  # None if the sensor does not track
     lane: LaneId | None  # the sensor's lane assignment; None if it cannot assign (D-033)
     stationary_s: float | None  # time seen stationary, 0.0 while moving; None if untracked (D-033)
+    distance_to_stop_m: float | None  # front to the end of its lane; None if unknown (D-036)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,7 @@ class LaneEstimate:
     queue_count_std: float
     last_observed_s: float | None  # None = never observed
     vehicle_count: float
+    zone_count: float  # vehicles within the lane's stop-line detection zone (D-036)
 
 
 @dataclass(frozen=True, slots=True)

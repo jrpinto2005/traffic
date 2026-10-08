@@ -50,6 +50,10 @@ class _Coverage:
     queued_lane_samples: int = 0
     halting_but_not_yet_queued: int = 0
     exactly_at_the_threshold: int = 0
+    occupied_zone_lane_samples: int = 0
+    empty_zone_lane_samples: int = 0
+    vehicles_in_a_lane_but_outside_its_zone: int = 0
+    distances_checked: int = 0
 
 
 def _drive_and_compare(
@@ -62,8 +66,10 @@ def _drive_and_compare(
         make_config(step_length_s=step_length_s, decision_interval_s=sample_every_s),
         network=scenario.network,
     )
-    sensor = OracleSensor(SensorId(0))
-    estimator = IdentityEstimator()
+    sensor = OracleSensor(SensorId(0), scenario.network)
+    estimator = IdentityEstimator(scenario.network)
+    lanes = {lane.id: lane for lane in scenario.network.lanes}
+    assert {lane.lane for lane in backend.project().lanes} <= lanes.keys()  # T1.3's A2
     coverage = _Coverage()
     next_sample_s = sample_every_s
     try:
@@ -83,10 +89,30 @@ def _drive_and_compare(
             assert [e.lane for e in estimate.lanes] == [t.lane for t in state.lanes], (
                 f"t={state.time_s}: the estimate does not cover exactly the lanes of the truth"
             )
+            for detection, vehicle in zip(observation.detections, state.vehicles, strict=True):
+                assert detection.distance_to_stop_m == (
+                    lanes[vehicle.lane].length_m - vehicle.position_on_lane_m
+                ), f"distance_to_stop_m of vehicle {int(vehicle.id)} at t={state.time_s}"
+                coverage.distances_checked += 1
             for estimated, true in zip(estimate.lanes, state.lanes, strict=True):
                 where = f"t={state.time_s} lane={int(true.lane)}"
                 assert estimated.queue_count == true.queue_count, f"queue_count at {where}"
                 assert estimated.vehicle_count == true.vehicle_count, f"vehicle_count at {where}"
+                # D-036: counted directly from the truth and the network, not via
+                # the sensor or the estimator.
+                zone_m = 2.0 * lanes[true.lane].speed_limit_mps
+                expected_zone = sum(
+                    1
+                    for v in state.vehicles
+                    if v.lane == true.lane
+                    and 0.0 <= lanes[v.lane].length_m - v.position_on_lane_m <= zone_m
+                )
+                assert estimated.zone_count == expected_zone, f"zone_count at {where}"
+                coverage.occupied_zone_lane_samples += expected_zone > 0
+                coverage.empty_zone_lane_samples += expected_zone == 0
+                coverage.vehicles_in_a_lane_but_outside_its_zone += (
+                    true.vehicle_count - expected_zone
+                )
                 assert estimated.queue_count_std == 0.0, where
                 assert estimated.last_observed_s == state.time_s, where
                 coverage.lane_comparisons += 1
@@ -133,6 +159,13 @@ def test_oracle_and_identity_estimator_reproduce_the_true_lane_state_exactly(
         "the network never filled; nothing was counted"
     )
     assert coverage.queued_lane_samples > 0, "no queue ever formed; queue_count was always 0"
+    # D-036: zones are occupied at some sampled steps and empty at others, and
+    # vehicles are counted in lanes but kept out of the zone, so neither
+    # "everything" nor "nothing" would have passed.
+    assert coverage.distances_checked > 0
+    assert coverage.occupied_zone_lane_samples > 0
+    assert coverage.empty_zone_lane_samples > 0
+    assert coverage.vehicles_in_a_lane_but_outside_its_zone > 0
     # D-025's 1 s condition is met from both sides, at the sampled instants: a
     # vehicle seen halting for less than 1 s, and one at exactly 1 s. Agreement on
     # the easy cases alone would not show the threshold is applied correctly.

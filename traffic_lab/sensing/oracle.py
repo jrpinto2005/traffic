@@ -16,13 +16,16 @@ under `D-033`:
   A sensor sampling only every decision interval could not rebuild it from its
   own samples, and an oracle that disagreed with truth would not be one.
 
+* `distance_to_stop_m` (`D-036`) is the lane's length from the `Network` minus the
+  vehicle's `position_on_lane_m`.
+
 `OracleSensor` takes no noise, latency or dropout parameters, not even disabled
 ones: its zero error is structural, which is the point of calling it the oracle.
 """
 
 from __future__ import annotations
 
-from traffic_lab.domain.network import SensorId
+from traffic_lab.domain.network import LaneId, Network, SensorId
 from traffic_lab.domain.observation import Detection, Observation
 from traffic_lab.domain.state import TrueState, VehicleState
 
@@ -30,8 +33,11 @@ from traffic_lab.domain.state import TrueState, VehicleState
 class OracleSensor:
     """Perfect observation of every vehicle on every lane."""
 
-    def __init__(self, sensor: SensorId) -> None:
+    def __init__(self, sensor: SensorId, network: Network) -> None:
         self._sensor = sensor
+        self._lane_length_m: dict[LaneId, float] = {
+            lane.id: lane.length_m for lane in network.lanes
+        }
 
     def observe(self, state: TrueState, now_s: float) -> Observation:
         """Observe `state` exactly.
@@ -66,4 +72,5 @@ class OracleSensor:
             stationary_s=(
                 0.0 if vehicle.halting_since_s is None else time_s - vehicle.halting_since_s
             ),
+            distance_to_stop_m=self._lane_length_m[vehicle.lane] - vehicle.position_on_lane_m,
         )
