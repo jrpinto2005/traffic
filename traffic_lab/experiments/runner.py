@@ -40,6 +40,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
+import math
 import multiprocessing
 import pickle
 import signal
@@ -102,9 +103,9 @@ class RunSpec:
     JSON values -- because `run_many` hands the spec to a `spawn` worker and the
     manifest records the factory by name and arguments (`controller_identity`).
 
-    `gridlock_steps` is D-008's N, which `BackendConfig` requires and the T1.11
-    contract's field list does not carry. It is required here, with no
-    default, rather than invented: see the T1.11 completion report.
+    D-008's N is not an input: it is derived from the network's signal timing
+    (`gridlock_steps`), and a network whose timing cannot bound it -- a
+    `max_green_s` of 0, which disables the override -- is refused.
     """
 
     run_id: str
@@ -117,10 +118,10 @@ class RunSpec:
     transport: TransportName = "libsumo"
     step_length_s: float
     output_dir: Path
-    gridlock_steps: int
 
     def __post_init__(self) -> None:
         controller_identity(self.controller_factory)  # raises if it cannot be recorded
+        derive_gridlock_steps(self.network, self.step_length_s)  # raises if N is unbounded
         if not self.run_id:
             raise ValueError("run_id must be non-empty")
         if self.seed_index < 0:
@@ -158,6 +159,53 @@ class RunSpec:
     def end_s(self) -> float:
         """The run's last simulated instant: the window's end plus the cool-down."""
         return self.window.end_s + self.config.cooldown_s
+
+    @property
+    def gridlock_steps(self) -> int:
+        """D-008's N for this run's network and step length (`derive_gridlock_steps`)."""
+        return derive_gridlock_steps(self.network, self.step_length_s)
+
+
+#: D-008's N, set by the owner (register v1.12): this many times the longest
+#: cycle the constraint layer allows.
+GRIDLOCK_CYCLE_MULTIPLE = 1.5
+
+
+def derive_gridlock_steps(network: Network, step_length_s: float) -> int:
+    """D-008's N: `ceil(1.5 * sum over phases of (max_green_s + yellow_s + all_red_s)
+    / step_length_s)`, the maximum over the network's signalized intersections.
+
+    The sum is the longest cycle the constraint layer can run -- every phase held
+    to its max-green override, each followed by its full clearance -- so a vehicle
+    alone at a red waits less than one cycle for its green. Nothing moving for
+    half as long again is therefore not a signal doing its job. A timing with
+    `max_green_s == 0` has no longest cycle and raises `ValueError`, as does a
+    network with no signal to derive N from.
+
+    The ceiling forgives binary rounding (`390 / 0.1` is not exactly 3900) by
+    a margin far below one step.
+    """
+    if not network.signalized_intersections:
+        raise ValueError("no signalized intersection to derive D-008's gridlock N from")
+    steps = 0
+    for intersection in network.signalized_intersections:
+        timing = intersection.timing
+        if timing.max_green_s <= 0.0:
+            raise ValueError(
+                f"intersection {int(intersection.id)} has max_green_s = {timing.max_green_s}: "
+                f"no longest cycle, so D-008's gridlock N cannot be derived"
+            )
+        cycle_s = len(intersection.phases) * (
+            timing.max_green_s + timing.yellow_s + timing.all_red_s
+        )
+        steps = max(
+            steps, math.ceil(GRIDLOCK_CYCLE_MULTIPLE * cycle_s / step_length_s - _CEIL_SLACK)
+        )
+    return steps
+
+
+#: See `derive_gridlock_steps`: absorbs floating-point excess in a step count.
+_CEIL_SLACK = 1e-9
 
 
 def run_one(spec: RunSpec) -> Path:

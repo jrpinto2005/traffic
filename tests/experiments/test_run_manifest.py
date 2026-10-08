@@ -57,7 +57,7 @@ def test_the_manifest_records_the_resolved_run(scenario: Scenario, tmp_path: Pat
             "args": [],
             "keywords": {"start_s": 30.0},
         },
-        "gridlock_steps": manifest["config"]["gridlock_steps"],
+        "gridlock_steps": 390,  # 1.5 x 4 phases x (60 + 3 + 2) s, at 1 s steps
         "net_sha256": _sha256(scenario.net),
         "routes_sha256": _sha256(scenario.routes),
         "run_config": CONFIG.model_dump(mode="json"),

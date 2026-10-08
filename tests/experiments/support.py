@@ -29,10 +29,6 @@ from traffic_lab.domain.state import SignalStage, TrueState
 from traffic_lab.experiments.config import RunConfig
 from traffic_lab.experiments.runner import RunSpec, run_one
 
-#: D-008's N for every test run: five minutes of nothing moving. Large enough
-#: that a red phase never trips it on this scenario; not a research value.
-TEST_GRIDLOCK_STEPS = 300
-
 #: One minute of warm-up, five of measurement, one of cool-down.
 CONFIG = RunConfig(
     name="t1.11", master_seed=42, warmup_s=60.0, measurement_s=300.0, cooldown_s=60.0
@@ -62,7 +58,6 @@ def make_spec(
         transport=transport,
         step_length_s=step_length_s,
         output_dir=output_dir,
-        gridlock_steps=TEST_GRIDLOCK_STEPS,
     )
 
 
