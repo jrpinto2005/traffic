@@ -19,16 +19,16 @@ Update it in the same commit that merges a ticket.
 | T1.5 demand | 🚧 issued 2026-10-07, amended contract (`D-037`) |
 | T1.6 snapshots | ⬜ **ready** |
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
-| T1.8 metrics | 🚧 issued 2026-10-07, amended contract (`D-035`, `D-006`, `D-008`) |
+| T1.8 metrics | ✅ merged 2026-10-07 — see the completion record |
 | T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |
 | T1.10 controllers | ⬜ blocked on T1.5 (Webster's saturation flow, `D-037`) |
-| T1.11 runner | ⬜ blocked on T1.8 |
+| T1.11 runner | ⬜ **ready** — needs a pre-issue review (SUMO warnings to a per-run log, not `--no-warnings`) |
 | T1.12 analysis | ⬜ blocked on T1.11 |
 | T1.13 profiling | ⬜ **ready** — T1.4's completion record has the baseline numbers |
 | T1.14 signal display | ✅ merged 2026-10-07 — see the completion record |
 | T1.15 detection zone | ✅ merged 2026-10-07 |
 
-Ready now: T1.6, T1.13. In flight: T1.5, T1.8. Critical path to the headline figure:
+Ready now: T1.6, T1.11, T1.13. In flight: T1.5. Critical path to the headline figure:
 T1.5 → T1.10 → T1.11 → T1.12.
 **Open risk:** the full suite hung once under TraCI for 17 minutes without reproducing.
 
