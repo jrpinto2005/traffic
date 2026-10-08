@@ -23,10 +23,13 @@ class RunManifest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     config_hash: str
-    """SHA-256 of the canonical serialised config (`compute_config_hash`)."""
+    """SHA-256 of the canonical serialised config (`compute_config_hash`). For a run
+    executed by `traffic_lab.experiments.runner` it covers the whole resolved run
+    record in `config` together with `seeds` (`runner.resolved_run`)."""
 
     config: dict[str, Any]
-    """The fully resolved config, defaults included."""
+    """The fully resolved config, defaults included. For an executed run, everything
+    needed to reproduce it from this file alone: see `runner.resolved_run`."""
 
     code_version: str
     """Git SHA of HEAD, suffixed '-dirty' if the working tree has uncommitted changes."""

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import signal
 from dataclasses import dataclass
+from typing import ClassVar
 
 from traffic_lab.control.controller import Controller
 from traffic_lab.domain.action import PhaseRequest
@@ -66,13 +67,20 @@ class Decision:
 
 
 class Recording(CycleFrom):
-    """`CycleFrom` that remembers every call, for the timing tests."""
+    """`CycleFrom` that remembers every call, for the timing tests.
+
+    Every instance registers itself in `instances`, so a test tap in the run's
+    own process can find the one the runner built without replacing the
+    factory -- which the manifest records by name."""
+
+    instances: ClassVar[list[Recording]] = []
 
     def __init__(
         self, network: Network, *, start_s: float = 10.0, decision_interval_s: float = 1.0
     ) -> None:
         super().__init__(network, start_s=start_s, decision_interval_s=decision_interval_s)
         self.decisions: list[Decision] = []
+        Recording.instances.append(self)
 
     def decide(self, est: EstimatedState, now_s: float) -> PhaseRequest:
         self.decisions.append(Decision(now_s, est.time_s, est.signals, len(est.lanes)))

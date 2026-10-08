@@ -2,7 +2,7 @@
 
 `instrumented_run` executes `run_one` with three read-only taps -- every
 projected `TrueState`, every `ConstraintLayer.display()` answer, every
-`SumoBackend.apply()` call -- and the controller instance the run built. It
+`SumoBackend.apply()` call -- plus what a `Recording` controller saw. It
 patches classes, so it belongs in a process of its own: `in_fresh_process`
 runs it in a `spawn` worker that serves one task, as `run_many` does, so the
 taps never outlive the run and SUMO's RNG history starts clean (T1.4).
@@ -10,7 +10,6 @@ taps never outlive the run and SUMO's RNG history starts clean (T1.4).
 
 from __future__ import annotations
 
-import dataclasses
 import multiprocessing
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
@@ -21,7 +20,7 @@ from typing import Any
 import pytest
 
 from tests.backend.conftest import Scenario
-from tests.experiments.controllers import Decision
+from tests.experiments.controllers import Decision, Recording
 from traffic_lab.backend import SumoBackend, TransportName
 from traffic_lab.control.constraint_layer import ConstraintLayer
 from traffic_lab.control.controller import Controller
@@ -87,7 +86,6 @@ def instrumented_run(spec: RunSpec) -> Instrumented:
     states: list[TrueState] = []
     displays: list[tuple[float, IntersectionId, Display]] = []
     applied: list[tuple[float, IntersectionId, str]] = []
-    controllers: list[Controller] = []
 
     project = SumoBackend.project
     apply = SumoBackend.apply
@@ -110,20 +108,15 @@ def instrumented_run(spec: RunSpec) -> Instrumented:
         displays.append((now(), intersection, shown))
         return shown
 
-    def factory(network: Network) -> Controller:
-        controller = spec.controller_factory(network)
-        controllers.append(controller)
-        return controller
-
     patch = pytest.MonkeyPatch()
     patch.setattr(SumoBackend, "project", tapped_project)
     patch.setattr(SumoBackend, "apply", tapped_apply)
     patch.setattr(ConstraintLayer, "display", tapped_display)
     try:
-        result = run_one(dataclasses.replace(spec, controller_factory=factory))
+        result = run_one(spec)
     finally:
         patch.undo()
-    recorded: list[Decision] = getattr(controllers[0], "decisions", [])
+    recorded = Recording.instances[-1].decisions if Recording.instances else []
     return Instrumented(result, tuple(states), tuple(displays), tuple(applied), tuple(recorded))
 
 

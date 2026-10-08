@@ -37,6 +37,8 @@ Timing conventions, stated once because off-by-one errors here are silent:
 
 from __future__ import annotations
 
+import functools
+import hashlib
 import json
 import multiprocessing
 import pickle
@@ -50,7 +52,7 @@ from dataclasses import dataclass
 from multiprocessing.connection import wait
 from multiprocessing.process import BaseProcess
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import polars as pl
 
@@ -62,7 +64,7 @@ from traffic_lab.control.controller import Controller
 from traffic_lab.domain.network import IntersectionId, Network, PhaseId, SensorId
 from traffic_lab.domain.state import SignalStage, TrueState
 from traffic_lab.estimation import Estimator, IdentityEstimator
-from traffic_lab.experiments.config import RunConfig, compute_config_hash
+from traffic_lab.experiments.config import RunConfig, canonical_hash
 from traffic_lab.experiments.manifest import RunManifest, measure_peak_memory_mb
 from traffic_lab.experiments.seeds import derive_run_seeds
 from traffic_lab.experiments.version import get_code_version, get_sumo_version
@@ -96,8 +98,9 @@ class RunSpec:
     """One run, fully resolved and picklable: everything `run_one` needs.
 
     `controller_factory` must be importable by a fresh process -- a top-level
-    function or class, or a `functools.partial` of one -- because `run_many`
-    hands the spec to a `spawn` worker.
+    function or class, or a `functools.partial` of one whose bound arguments are
+    JSON values -- because `run_many` hands the spec to a `spawn` worker and the
+    manifest records the factory by name and arguments (`controller_identity`).
 
     `gridlock_steps` is D-008's N, which `BackendConfig` requires and the T1.11
     contract's field list does not carry. It is required here, with no
@@ -117,6 +120,7 @@ class RunSpec:
     gridlock_steps: int
 
     def __post_init__(self) -> None:
+        controller_identity(self.controller_factory)  # raises if it cannot be recorded
         if not self.run_id:
             raise ValueError("run_id must be non-empty")
         if self.seed_index < 0:
@@ -174,6 +178,7 @@ def run_one(spec: RunSpec) -> Path:
     seeds = derive_run_seeds(spec.config.master_seed, spec.seed_index)
     controller = spec.controller_factory(spec.network)
     decision_interval_s = controller.decision_interval_s
+    resolved = resolved_run(spec, decision_interval_s)
     layer = ConstraintLayer(
         spec.network,
         ConstraintLayerConfig(
@@ -227,12 +232,12 @@ def run_one(spec: RunSpec) -> Path:
 
     counters = last.counters
     manifest = RunManifest(
-        config_hash=compute_config_hash(spec.config),
-        config=spec.config.model_dump(mode="json"),
+        config_hash=canonical_hash({"config": resolved, "seeds": seeds}),
+        config=resolved,
         code_version=get_code_version(),
         sumo_version=get_sumo_version(),
         seeds=seeds,
-        decision_interval_s={type(controller).__name__: decision_interval_s},
+        decision_interval_s={resolved["controller"]["factory"]: decision_interval_s},
         warmup_design=spec.config.warmup_design,
         validity={
             "teleports": counters.teleports,
@@ -252,6 +257,64 @@ def run_one(spec: RunSpec) -> Path:
         json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
     )
     return out / RESULT_FILE
+
+
+def resolved_run(spec: RunSpec, decision_interval_s: float) -> dict[str, Any]:
+    """Everything that decides what a run does, as JSON values: the manifest's `config`.
+
+    Enough to reproduce the run from the manifest alone: the spec's own fields,
+    the controller by qualified name and bound arguments, its Δt, D-008's N, the
+    T1.1 `RunConfig`, and the net and routes files by SHA-256 of their content.
+    File paths are left out on purpose: they differ between machines, and the
+    same run must hash the same everywhere (T1.1). `output_dir` is where the
+    run is written, not what it is.
+    """
+    return {
+        "run_id": spec.run_id,
+        "seed_index": spec.seed_index,
+        "transport": spec.transport,
+        "step_length_s": spec.step_length_s,
+        "decision_interval_s": decision_interval_s,
+        "controller": controller_identity(spec.controller_factory),
+        "gridlock_steps": spec.gridlock_steps,
+        "net_sha256": _file_sha256(spec.net),
+        "routes_sha256": _file_sha256(spec.routes),
+        "run_config": spec.config.model_dump(mode="json"),
+    }
+
+
+def controller_identity(factory: Callable[[Network], Controller]) -> dict[str, Any]:
+    """A controller factory as JSON: `{"factory": "module.qualname", "args": [...],
+    "keywords": {...}}`, the arguments being those a `functools.partial` binds.
+
+    Raises `ValueError` for a factory a fresh process could not import by name
+    (a lambda, a closure) or whose bound arguments are not JSON values: either
+    would make the manifest unable to say which controller ran.
+    """
+    target: Any = factory
+    args: tuple[Any, ...] = ()
+    keywords: dict[str, Any] = {}
+    if isinstance(factory, functools.partial):
+        target, args, keywords = factory.func, factory.args, dict(factory.keywords)
+    module = getattr(target, "__module__", None)
+    qualname = getattr(target, "__qualname__", None)
+    if not module or not qualname or "<" in qualname:
+        raise ValueError(
+            f"controller factory {factory!r} is not importable by name; use a top-level "
+            f"function or class, or a functools.partial of one"
+        )
+    identity = {"factory": f"{module}.{qualname}", "args": list(args), "keywords": keywords}
+    try:
+        return dict(json.loads(json.dumps(identity, sort_keys=True)))
+    except TypeError as exc:
+        raise ValueError(
+            f"controller factory {factory!r} binds arguments that are not JSON values, so "
+            f"the manifest could not record them"
+        ) from exc
+
+
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _step_loop(
