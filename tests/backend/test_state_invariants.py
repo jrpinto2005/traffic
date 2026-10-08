@@ -22,13 +22,11 @@ Two complementary levels:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from tests.backend.conftest import make_config
+from tests.backend.conftest import Scenario, make_config
 from traffic_lab.backend import HALTING_SPEED_MPS, QUEUE_MIN_HALTING_S, SumoBackend
 from traffic_lab.backend.projection import Projector
 from traffic_lab.backend.transport import RawStep, RawVehicle
@@ -179,9 +177,7 @@ def test_a_vehicle_is_queued_only_from_the_second_second_of_halting() -> None:
 
 
 @pytest.mark.parametrize("transport", ["traci", "libsumo"])
-def test_invariants_hold_on_a_live_run(
-    transport: str, reference_net: Path, reference_routes: Path
-) -> None:
+def test_invariants_hold_on_a_live_run(transport: str, scenario: Scenario) -> None:
     """The same three invariants, on states a real SUMO produced.
 
     The lane aggregates are additionally cross-checked against the vehicles they
@@ -189,7 +185,7 @@ def test_invariants_hold_on_a_live_run(
     per-vehicle while reporting lane totals that do not match.
     """
     backend = SumoBackend()
-    backend.start(reference_net, reference_routes, make_config(transport=transport))
+    backend.start(scenario.net, scenario.routes, make_config(transport=transport))
     try:
         saw_a_queue = False
         for _ in range(400):

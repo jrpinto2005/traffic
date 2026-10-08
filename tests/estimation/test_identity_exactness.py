@@ -5,8 +5,9 @@ counts exactly -- not within a tolerance. If it does not, the oracle arm is not 
 control, and every later claim about what a degraded sensor costs is measured
 against the wrong baseline.
 
-The scenario is the M0 reference intersection driven through the real
-`SumoBackend`, never a mock (`tests/backend/conftest.py`). It is run three ways:
+The scenario is a T1.3-generated intersection with one flow per movement,
+driven through the real `SumoBackend`, never a mock (`tests/backend/conftest.py`).
+It is run three ways:
 
 * a sample at **every simulation step**;
 * a sample every **5 s** (`D-020`'s decision interval) over 1 s steps, which is
@@ -23,19 +24,19 @@ it -- while the sensor and estimator run only when a decision is due, exactly as
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import pytest
 
-from tests.backend.conftest import make_config
+from tests.backend.conftest import Scenario, make_config
 from traffic_lab.backend import QUEUE_MIN_HALTING_S, SumoBackend
 from traffic_lab.domain.network import SensorId
 from traffic_lab.estimation import IdentityEstimator
 from traffic_lab.sensing import OracleSensor
 
-#: Steps per run, at either step length. Several full signal cycles (60 s each in
-#: the reference program) and a saturated queue, so that queues form, discharge
-#: and reform rather than the empty network being compared with itself.
+#: Steps per run, at either step length. Several full cycles of the static
+#: program (`Built.static_cycle_s()`, checked below) and a saturated queue, so
+#: that queues form, discharge and reform rather than the empty network being
+#: compared with itself.
 STEPS = 600
 
 
@@ -52,12 +53,12 @@ class _Coverage:
 
 
 def _drive_and_compare(
-    net: Path, routes: Path, *, step_length_s: float, sample_every_s: float
+    scenario: Scenario, *, step_length_s: float, sample_every_s: float
 ) -> _Coverage:
     backend = SumoBackend()
     backend.start(
-        net,
-        routes,
+        scenario.net,
+        scenario.routes,
         make_config(step_length_s=step_length_s, decision_interval_s=sample_every_s),
     )
     sensor = OracleSensor(SensorId(0))
@@ -112,20 +113,24 @@ def _drive_and_compare(
     ],
 )
 def test_oracle_and_identity_estimator_reproduce_the_true_lane_state_exactly(
-    reference_net: Path,
-    reference_routes: Path,
+    scenario: Scenario,
     step_length_s: float,
     sample_every_s: float,
     expected_samples: int,
 ) -> None:
+    # At least two full cycles of the static program, even at half-second steps.
+    assert STEPS * step_length_s >= 2 * scenario.built.static_cycle_s()
     coverage = _drive_and_compare(
-        reference_net, reference_routes, step_length_s=step_length_s, sample_every_s=sample_every_s
+        scenario, step_length_s=step_length_s, sample_every_s=sample_every_s
     )
 
     # The comparisons above all passed. These say they were comparing something.
     assert coverage.samples == expected_samples
     assert coverage.lane_comparisons > 0
-    assert coverage.max_vehicles > 20, "the network never filled; nothing was counted"
+    # More vehicles in the network at once than there are flows feeding it.
+    assert coverage.max_vehicles > len(scenario.built.movements), (
+        "the network never filled; nothing was counted"
+    )
     assert coverage.queued_lane_samples > 0, "no queue ever formed; queue_count was always 0"
     # D-025's 1 s condition is met from both sides, at the sampled instants: a
     # vehicle seen halting for less than 1 s, and one at exactly 1 s. Agreement on

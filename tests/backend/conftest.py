@@ -7,60 +7,57 @@ rather than SUMO's behaviour -- which is exactly the failure mode
 `research/M0_sumo_semantics.md` SS3 records ("the first pass answered most of
 SS1 from documentation").
 
-The scenario is the M0 reference intersection (`research/M0_reference_scenario.md`):
-four approaches, two lanes each, one static two-phase program, constant demand.
-Its `reference.net.xml` is gitignored and built on demand by `netconvert`.
+The scenario is a T1.3-generated intersection (T1.14 Amendment A1): the default
+four-approach spec with the protected four-phase plan, its static program, and
+one flow per movement (`tests/generated_scenario.py`). Every geometry-specific
+value a test needs -- the traffic light, the length of a display, edge IDs,
+timings -- is read from it rather than written down.
 """
 
 from __future__ import annotations
 
-import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from sumolib import checkBinary
 
+from tests.generated_scenario import FOUR_WAY, Built, build_intersection, one_flow_per_movement
 from traffic_lab.backend import BackendConfig
+from traffic_lab.domain.network import Network
 
-REFERENCE_DIR = Path(__file__).resolve().parents[2] / "spikes" / "M0_reference"
-REFERENCE_NET = REFERENCE_DIR / "reference.net.xml"
-REFERENCE_ROUTES = REFERENCE_DIR / "reference.rou.xml"
+#: The demand runs this long; no test drives the scenario further.
+DEMAND_END_S = 3600.0
+
+
+@dataclass(frozen=True)
+class Scenario:
+    """A generated intersection with its demand: what `SumoBackend.start()` takes."""
+
+    built: Built
+    routes: Path
+
+    @property
+    def net(self) -> Path:
+        return self.built.net
+
+    @property
+    def network(self) -> Network:
+        return self.built.network
 
 
 @pytest.fixture(scope="session")
-def reference_net() -> Path:
-    """Path to the built reference network, building it first if necessary."""
-    if not REFERENCE_NET.exists():
-        subprocess.run(
-            [
-                checkBinary("netconvert"),
-                "--node-files",
-                str(REFERENCE_DIR / "reference.nod.xml"),
-                "--edge-files",
-                str(REFERENCE_DIR / "reference.edg.xml"),
-                "--connection-files",
-                str(REFERENCE_DIR / "reference.con.xml"),
-                "--tllogic-files",
-                str(REFERENCE_DIR / "reference.tll.xml"),
-                "--output-file",
-                str(REFERENCE_NET),
-            ],
-            check=True,
-            cwd=REFERENCE_DIR,
-            capture_output=True,
-        )
-    return REFERENCE_NET
-
-
-@pytest.fixture
-def reference_routes() -> Path:
-    return REFERENCE_ROUTES
+def scenario(tmp_path_factory: pytest.TempPathFactory) -> Scenario:
+    """The net path, the route path and the canonical `Network`, built once per session."""
+    out = tmp_path_factory.mktemp("generated_scenario")
+    built = build_intersection(FOUR_WAY, out)
+    routes = one_flow_per_movement(built, out / "demand.rou.xml", DEMAND_END_S)
+    return Scenario(built, routes)
 
 
 def make_config(**overrides: object) -> BackendConfig:
     """A valid `BackendConfig`, so each test states only what it is about.
 
-    `gridlock_steps` is large enough that the reference scenario never trips it
+    `gridlock_steps` is large enough that the scenario never trips it
     accidentally; the gridlock tests set their own.
     """
     fields: dict[str, object] = {
