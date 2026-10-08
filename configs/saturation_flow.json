@@ -1,0 +1,201 @@
+{
+ "calibrations": [
+  {
+   "sumo_version": "1.27.1",
+   "vehicle_type": "car",
+   "vtype": {
+    "vClass": "passenger"
+   },
+   "vtype_hash": "585714d251654e24e73e8b9c1909e3862c7e1c9026d6497ac2eb31e56c2722f8",
+   "step_length_s": 1.0,
+   "speed_limit_mps": 13.89,
+   "turn": "through",
+   "lanes_per_approach": 2,
+   "serving_lanes": 2,
+   "approach_length_m": 1000.0,
+   "red_s": 243.0,
+   "green_s": 240.0,
+   "first_counted_vehicle": 5,
+   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "queued_per_lane": [
+    [
+     111,
+     116
+    ],
+    [
+     113,
+     114
+    ],
+    [
+     111,
+     113
+    ],
+    [
+     110,
+     114
+    ],
+    [
+     109,
+     113
+    ]
+   ],
+   "counted_headways": [
+    219,
+    219,
+    216,
+    216,
+    214
+   ],
+   "halted_fraction": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "per_seed_vph_per_lane": [
+    1835.2809721122958,
+    1825.2535074315876,
+    1850.5473584007616,
+    1819.6283989329338,
+    1833.1509065816401
+   ],
+   "mean_vph_per_lane": 1832.7722286918438,
+   "std_vph_per_lane": 11.74397565545171
+  },
+  {
+   "sumo_version": "1.27.1",
+   "vehicle_type": "car",
+   "vtype": {
+    "vClass": "passenger"
+   },
+   "vtype_hash": "585714d251654e24e73e8b9c1909e3862c7e1c9026d6497ac2eb31e56c2722f8",
+   "step_length_s": 1.0,
+   "speed_limit_mps": 13.89,
+   "turn": "left",
+   "lanes_per_approach": 2,
+   "serving_lanes": 1,
+   "approach_length_m": 1000.0,
+   "red_s": 243.0,
+   "green_s": 240.0,
+   "first_counted_vehicle": 5,
+   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "queued_per_lane": [
+    [
+     72
+    ],
+    [
+     70
+    ],
+    [
+     71
+    ],
+    [
+     60
+    ],
+    [
+     74
+    ]
+   ],
+   "counted_headways": [
+    68,
+    66,
+    67,
+    56,
+    70
+   ],
+   "halted_fraction": [
+    0.9852941176470589,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "per_seed_vph_per_lane": [
+    1676.138308798357,
+    1606.7081417365428,
+    1626.6522794712703,
+    1656.9409057286098,
+    1680.7843660374838
+   ],
+   "mean_vph_per_lane": 1649.4448003544526,
+   "std_vph_per_lane": 32.00322001010351
+  },
+  {
+   "sumo_version": "1.27.1",
+   "vehicle_type": "car",
+   "vtype": {
+    "vClass": "passenger"
+   },
+   "vtype_hash": "585714d251654e24e73e8b9c1909e3862c7e1c9026d6497ac2eb31e56c2722f8",
+   "step_length_s": 1.0,
+   "speed_limit_mps": 13.89,
+   "turn": "right",
+   "lanes_per_approach": 2,
+   "serving_lanes": 1,
+   "approach_length_m": 1000.0,
+   "red_s": 243.0,
+   "green_s": 240.0,
+   "first_counted_vehicle": 5,
+   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "queued_per_lane": [
+    [
+     86
+    ],
+    [
+     86
+    ],
+    [
+     86
+    ],
+    [
+     82
+    ],
+    [
+     83
+    ]
+   ],
+   "counted_headways": [
+    82,
+    82,
+    82,
+    78,
+    79
+   ],
+   "halted_fraction": [
+    1.0,
+    1.0,
+    1.0,
+    1.0,
+    1.0
+   ],
+   "per_seed_vph_per_lane": [
+    1364.2035214196587,
+    1351.7102431430012,
+    1361.2468873927878,
+    1384.9568434032055,
+    1369.4144838212637
+   ],
+   "mean_vph_per_lane": 1366.3063958359835,
+   "std_vph_per_lane": 12.25324227823393
+  }
+ ]
+}
