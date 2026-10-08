@@ -22,14 +22,15 @@ Update it in the same commit that merges a ticket.
 | T1.8 metrics | ✅ merged 2026-10-07 — see the completion record |
 | T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |
 | T1.10 controllers | ⬜ blocked on T1.5 (Webster's saturation flow, `D-037`) |
-| T1.11 runner | ⬜ **ready** — needs a pre-issue review (SUMO warnings to a per-run log, not `--no-warnings`) |
+| T1.11 runner | 🚧 issued 2026-10-07 — split: the run core now; sweep expansion moved to T1.16 |
 | T1.12 analysis | ⬜ blocked on T1.11 |
 | T1.13 profiling | ⬜ **ready** — T1.4's completion record has the baseline numbers |
 | T1.14 signal display | ✅ merged 2026-10-07 — see the completion record |
 | T1.15 detection zone | ✅ merged 2026-10-07 |
+| T1.16 experiment spec | ⬜ blocked on T1.5, T1.10, T1.11 — split from T1.11 |
 
-Ready now: T1.6, T1.11, T1.13. In flight: T1.5. Critical path to the headline figure:
-T1.5 → T1.10 → T1.11 → T1.12.
+Ready now: T1.6, T1.13. In flight: T1.5, T1.11. Critical path to the headline figure:
+T1.5 → T1.10 → T1.16 → T1.12 (T1.11 in parallel).
 **Open risk:** the full suite hung once under TraCI for 17 minutes without reproducing.
 
 ## A correction to the roadmap's ticket list
