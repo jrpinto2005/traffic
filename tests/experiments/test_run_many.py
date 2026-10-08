@@ -20,7 +20,14 @@ import polars as pl
 import pytest
 
 from tests.backend.conftest import DEMAND_END_S, Scenario
-from tests.experiments.controllers import CRASH_MESSAGE, CycleFrom, crashing, hold_first
+from tests.experiments.controllers import (
+    CRASH_MESSAGE,
+    CycleFrom,
+    crashing,
+    exits,
+    hold_first,
+    segfaults,
+)
 from tests.experiments.routes import out_of_order_routes
 from tests.experiments.support import CONFIG, Instrumented, make_spec, watch
 from tests.generated_scenario import OVERLOAD_PERIOD_S, one_flow_per_movement
@@ -187,12 +194,42 @@ def test_a_crashing_controller_fails_exactly_its_own_run(
 
     assert experiment["run_id"].to_list() == ["ok0", "ok1"]
     failures = pl.read_parquet(tmp_path / "experiment" / FAILURES_FILE)
-    assert failures["run_id"].to_list() == ["boom"]
+    assert failures.select("run_id", "exit_code", "signal").rows() == [("boom", 1, None)]
     (text,) = failures["exception"].to_list()
     assert "RuntimeError" in text and CRASH_MESSAGE in text
-    assert "decide" in text  # the worker's own traceback came back with it
+    assert "decide" in text  # the child's own traceback came back with it
     assert not (tmp_path / "boom" / RESULT_FILE).exists()
     assert not (tmp_path / "boom" / MANIFEST_FILE).exists()
+
+
+@pytest.mark.parametrize("jobs", [1, 2, 5])
+def test_a_process_that_exits_fails_only_its_own_run(
+    scenario: Scenario, tmp_path: Path, jobs: int
+) -> None:
+    """`os._exit(1)` raises nothing and writes nothing: the exit code is all there
+    is. Runs before it, beside it and after it in the batch are unaffected."""
+    specs = [make_spec(scenario, tmp_path / f"ok{k}", hold_first, seed_index=k) for k in range(4)]
+    specs.insert(1, make_spec(scenario, tmp_path / "dies", exits))
+    experiment = pl.read_parquet(run_many(specs, tmp_path / "experiment", jobs=jobs))
+
+    assert experiment["run_id"].to_list() == ["ok0", "ok1", "ok2", "ok3"]
+    assert experiment["valid"].to_list() == [True] * 4
+    failures = pl.read_parquet(tmp_path / "experiment" / FAILURES_FILE)
+    assert failures.rows() == [("dies", 1, None, None)]
+
+
+def test_a_segfaulting_process_fails_only_its_own_run(scenario: Scenario, tmp_path: Path) -> None:
+    """SIGSEGV, as a segfault inside libsumo would end the process."""
+    specs = [
+        make_spec(scenario, tmp_path / "ok0", hold_first, seed_index=0),
+        make_spec(scenario, tmp_path / "segv", segfaults),
+        make_spec(scenario, tmp_path / "ok1", hold_first, seed_index=1),
+    ]
+    experiment = pl.read_parquet(run_many(specs, tmp_path / "experiment", jobs=3))
+
+    assert experiment["run_id"].to_list() == ["ok0", "ok1"]
+    failures = pl.read_parquet(tmp_path / "experiment" / FAILURES_FILE)
+    assert failures.rows() == [("segv", None, "SIGSEGV", None)]
 
 
 def test_an_overloaded_run_is_in_the_experiment_flagged_invalid(

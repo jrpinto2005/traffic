@@ -7,6 +7,8 @@ factories' return types. They read `EstimatedState` only, like any controller.
 
 from __future__ import annotations
 
+import os
+import signal
 from dataclasses import dataclass
 
 from traffic_lab.control.controller import Controller
@@ -86,6 +88,22 @@ class CrashingController(HoldFirst):
         return super().decide(est, now_s)
 
 
+class DyingController(HoldFirst):
+    """Ends its own process at its first decision at or after `CRASH_AT_S`, without
+    raising: `os._exit(1)`, or SIGSEGV as a stand-in for a segfault inside libsumo."""
+
+    def __init__(self, network: Network, *, how: str) -> None:
+        super().__init__(network)
+        self._how = how
+
+    def decide(self, est: EstimatedState, now_s: float) -> PhaseRequest:
+        if now_s >= CRASH_AT_S:
+            if self._how == "exit":
+                os._exit(1)
+            os.kill(os.getpid(), signal.SIGSEGV)
+        return super().decide(est, now_s)
+
+
 CRASH_AT_S = 120.0
 CRASH_MESSAGE = "deliberate controller crash"
 
@@ -96,3 +114,11 @@ def hold_first(network: Network) -> Controller:
 
 def crashing(network: Network) -> Controller:
     return CrashingController(network)
+
+
+def exits(network: Network) -> Controller:
+    return DyingController(network, how="exit")
+
+
+def segfaults(network: Network) -> Controller:
+    return DyingController(network, how="segv")

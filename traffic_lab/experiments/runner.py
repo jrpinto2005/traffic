@@ -1,4 +1,4 @@
-"""The run core: one run end to end, and many runs in a process pool (T1.11, D-031).
+"""The run core: one run end to end, and many runs, each in its own process (T1.11, D-031).
 
 `run_one` executes `06_ARCHITECTURE.md` SS6.2's step loop literally. Every
 simulation step: `backend.step()`, `project()`, `constraint_layer.step()`,
@@ -10,12 +10,13 @@ was applied last. At the end SUMO is closed, its tripinfo read (D-035) and the
 metrics finalized (T1.8); the run writes its result row, its manifest, its
 tripinfo and its SUMO warning log.
 
-`run_many` runs specs in a `ProcessPoolExecutor` with the `spawn` context and
-`max_tasks_per_child=1`: **a fresh process per run.** LibSUMO holds one
-simulation per process, and T1.4 showed a replay depends on the process's RNG
-history, so a reused worker would make results depend on scheduling. A run that
-raises produces no result row; it is recorded in `failures.parquet` with its
-exception text, and nothing is retried. A run that is merely *invalid* (D-008)
+`run_many` starts one `spawn` process per run, at most `jobs` at once: **a
+fresh process per run.** LibSUMO holds one simulation per process, and T1.4
+showed a replay depends on the process's RNG history, so a reused worker would
+make results depend on scheduling. A run whose process raises, exits non-zero
+or dies by a signal produces no result row; it is recorded in
+`failures.parquet` with its exit code, signal and traceback, nothing is
+retried, and no other run is affected. A run that is merely *invalid* (D-008)
 is a result like any other and is written with its flags.
 
 Timing conventions, stated once because off-by-one errors here are silent:
@@ -38,13 +39,18 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import pickle
+import signal
 import sys
 import time
 import traceback
+from collections import deque
 from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
+from multiprocessing.connection import wait
+from multiprocessing.process import BaseProcess
 from pathlib import Path
+from typing import cast
 
 import polars as pl
 
@@ -60,6 +66,7 @@ from traffic_lab.experiments.config import RunConfig, compute_config_hash
 from traffic_lab.experiments.manifest import RunManifest, measure_peak_memory_mb
 from traffic_lab.experiments.seeds import derive_run_seeds
 from traffic_lab.experiments.version import get_code_version, get_sumo_version
+from traffic_lab.experiments.worker import run_in_child
 from traffic_lab.metrics import MeasurementWindow, MetricAccumulator
 from traffic_lab.sensing import OracleSensor, SensorModel
 
@@ -68,6 +75,9 @@ RESULT_FILE = "result.parquet"
 MANIFEST_FILE = "manifest.json"
 TRIPINFO_FILE = "tripinfo.xml"
 WARNING_LOG_FILE = "sumo-warnings.log"
+
+#: Written by a run's process when the run raises (`worker.run_in_child`).
+TRACEBACK_FILE = "exception.txt"
 
 #: What `run_many` writes into the experiment directory.
 EXPERIMENT_FILE = "experiment.parquet"
@@ -320,39 +330,83 @@ def _write_row(row: Mapping[str, object], path: Path) -> None:
     frame.write_parquet(path)
 
 
+@dataclass(frozen=True, slots=True)
+class _Failure:
+    """Why a run produced no result: how its process ended, and what it said."""
+
+    exit_code: int | None  # the child's exit status; None if it never ran or a signal ended it
+    signal: str | None  # the signal that ended it, e.g. "SIGSEGV"
+    exception: str | None  # the traceback the child wrote, or why it could not run
+
+
 def run_many(specs: Sequence[RunSpec], out: Path, *, jobs: int) -> Path:
-    """Run every spec, each in a fresh process, at most `jobs` at a time.
+    """Run every spec, each in its own fresh process, at most `jobs` alive at once.
+
+    One `spawn` `multiprocessing.Process` per run, never reused, so each run's
+    results depend on its spec alone. The parent waits on the processes and
+    reads each exit code: a run fails if its process exits non-zero, is killed
+    by a signal, or exits 0 without a result -- and **only that run fails**.
+    Runs in flight or pending are unaffected, which a process pool cannot
+    promise: when one of its workers dies it fails every pending task with it
+    (measured: `os._exit` in one run of five failed all four that had not
+    finished).
 
     Returns the path of `out/experiment.parquet`: one row per run that finished,
-    valid or not, in the order of `specs`. Runs that raised are in
-    `out/failures.parquet` (`run_id`, `exception`), always written, empty when
-    nothing failed. One progress line per finished run goes to stderr.
+    valid or not, in the order of `specs`. Failed runs are in
+    `out/failures.parquet` -- `run_id`, `exit_code`, `signal`, and `exception`,
+    the traceback when the child wrote one -- always written, empty when nothing
+    failed. Nothing is retried. One progress line per finished run goes to stderr.
     """
     if jobs < 1:
         raise ValueError(f"jobs must be at least 1, got {jobs}")
     _require_distinct(specs)
     out.mkdir(parents=True, exist_ok=True)
 
+    context = multiprocessing.get_context("spawn")
     progress = _Progress(total=len(specs))
+    pending = deque(specs)
+    running: dict[int, tuple[BaseProcess, RunSpec]] = {}  # by process sentinel
     results: dict[str, Path] = {}
-    failures: dict[str, str] = {}
-    with ProcessPoolExecutor(
-        max_workers=jobs,
-        mp_context=multiprocessing.get_context("spawn"),
-        max_tasks_per_child=1,
-    ) as pool:
-        futures: dict[Future[Path], RunSpec] = {pool.submit(run_one, spec): spec for spec in specs}
-        for future in as_completed(futures):
-            run_id = futures[future].run_id
-            try:
-                path = future.result()
-            except Exception as exc:  # recorded, never retried, never dropped
-                failures[run_id] = "".join(traceback.format_exception(exc))
-                progress.report(run_id, "failed")
-                continue
-            results[run_id] = path
-            valid = bool(pl.read_parquet(path, columns=["valid"]).item())
-            progress.report(run_id, "done" if valid else "invalid")
+    failures: dict[str, _Failure] = {}
+
+    def finish(spec: RunSpec, failure: _Failure | None) -> None:
+        if failure is not None:
+            failures[spec.run_id] = failure
+            progress.report(spec.run_id, "failed")
+            return
+        path = spec.output_dir / RESULT_FILE
+        results[spec.run_id] = path
+        valid = bool(pl.read_parquet(path, columns=["valid"]).item())
+        progress.report(spec.run_id, "done" if valid else "invalid")
+
+    try:
+        while pending or running:
+            while pending and len(running) < jobs:
+                spec = pending.popleft()
+                spec.output_dir.mkdir(parents=True, exist_ok=True)
+                traceback_path = spec.output_dir / TRACEBACK_FILE
+                traceback_path.unlink(missing_ok=True)
+                try:
+                    payload = pickle.dumps(spec)
+                except Exception:
+                    finish(spec, _Failure(None, None, traceback.format_exc()))
+                    continue
+                process: BaseProcess = context.Process(
+                    target=run_in_child,
+                    args=(payload, str(traceback_path)),
+                    name=f"run {spec.run_id}",
+                )
+                process.start()
+                running[process.sentinel] = (process, spec)
+            for sentinel in wait(list(running)):
+                process, spec = running.pop(cast(int, sentinel))
+                process.join()
+                finish(spec, _failure_of(process, spec))
+    finally:
+        # Only reached with processes alive if the parent itself was interrupted.
+        for process, _ in running.values():
+            process.terminate()
+            process.join()
 
     frames = [pl.read_parquet(results[s.run_id]) for s in specs if s.run_id in results]
     experiment = (
@@ -363,10 +417,34 @@ def run_many(specs: Sequence[RunSpec], out: Path, *, jobs: int) -> Path:
     experiment.write_parquet(out / EXPERIMENT_FILE)
     ordered = [s.run_id for s in specs if s.run_id in failures]
     pl.DataFrame(
-        {"run_id": ordered, "exception": [failures[r] for r in ordered]},
-        schema={"run_id": pl.String, "exception": pl.String},
+        {
+            "run_id": ordered,
+            "exit_code": [failures[r].exit_code for r in ordered],
+            "signal": [failures[r].signal for r in ordered],
+            "exception": [failures[r].exception for r in ordered],
+        },
+        schema={
+            "run_id": pl.String,
+            "exit_code": pl.Int64,
+            "signal": pl.String,
+            "exception": pl.String,
+        },
     ).write_parquet(out / FAILURES_FILE)
     return out / EXPERIMENT_FILE
+
+
+def _failure_of(process: BaseProcess, spec: RunSpec) -> _Failure | None:
+    """`None` if the run produced its result; otherwise how it failed."""
+    code = process.exitcode
+    traceback_path = spec.output_dir / TRACEBACK_FILE
+    written = traceback_path.read_text() if traceback_path.exists() else None
+    if code is not None and code < 0:  # multiprocessing's convention: -N is signal N
+        return _Failure(None, signal.Signals(-code).name, written)
+    if code != 0:
+        return _Failure(code, None, written)
+    if not (spec.output_dir / RESULT_FILE).exists():
+        return _Failure(0, None, "the run's process exited 0 without writing its result")
+    return None
 
 
 def _require_distinct(specs: Sequence[RunSpec]) -> None:
