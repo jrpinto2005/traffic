@@ -1,7 +1,7 @@
 # Decision Register
 
 **Status:** Living document. Updated before the code that assumes a decision, never after.
-**Version:** 1.11 — see §6 for the change log
+**Version:** 1.12 — see §6 for the change log
 **Governed by:** `02_PROJECT_CHARTER.md`
 
 ---
@@ -356,6 +356,14 @@ divided by the number scheduled in the window, computed exactly from tripinfo's 
 actual departures. A vehicle that has waited half a minute to enter means a queue reached the
 boundary; one that waited a step does not. Delayed-then-inserted vehicles are already charged
 through `departDelay` in the primary delay (`D-006`).
+
+**Gridlock's N set 2026-10-08, ratified by owner — derived from the signal timing.** A run is
+gridlocked when no vehicle has moved for **1.5 × the longest cycle the constraint layer can
+produce**: the sum over phases of `max_green_s + yellow_s + all_red_s`, times 1.5, in steps.
+A legitimate all-halted interval — one vehicle waiting at red while the signal serves empty
+phases — can last almost a full cycle, so any fixed value is either a false positive on some
+timing or slow to fire on another. Research runs must therefore set `max_green_s > 0`; a run
+without it is refused. Not configurable.
 
 **Rationale.** SUMO teleports stuck vehicles by default after 300s. Under congestion — the
 regime where adaptive control is supposed to prove itself — this silently deletes the
@@ -1756,6 +1764,7 @@ five seeds). The stored values are T1.5's, not the figures in the problem statem
 
 | Version | Change |
 | --- | --- |
+| 1.12 | **T1.11 audit, 2026-10-08.** `D-008`'s gridlock N set by the owner: 1.5 × the longest possible cycle (Σ max green + yellow + all-red), derived per scenario, since a single queued vehicle can legitimately wait almost a cycle while every vehicle is halted. |
 | 1.11 | **`D-037` corrected, 2026-10-08.** The architect's calibration procedure measured boundary insertion capacity (1652 through), not stop-line saturation flow (≈ 1830–1866 through, standing-queue discharge), found by T1.5's builder. The decision to calibrate in SUMO stands — the HCM still overstates turns by 8–14 % — and the procedure is now standing-queue discharge. |
 | 1.10 | **T1.8 audit, 2026-10-07.** `D-008`'s insertion-loss numerator refined, ratified by the owner: vehicles scheduled ≥ 30 s before the window closes and still not inserted, from tripinfo, instead of the pending snapshot at the closing instant, which invalidated healthy short windows on synchronised releases. |
 | 1.9 | **Pre-issue review of T1.5, 2026-10-07.** `D-037`, ratified by the owner: saturation flow is calibrated in SUMO (measured 1652 / 1624 / 1392 veh/h/lane through / left / right), because the HCM's 1900 overstates SUMO's capacity by 13–16 % and would mistune Webster. |
