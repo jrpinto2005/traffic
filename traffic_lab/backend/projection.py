@@ -27,6 +27,7 @@ isolate the part that actually differs.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -85,16 +86,18 @@ class _VehicleRecord:
 
 @dataclass(slots=True)
 class _SignalRecord:
-    """When the current phase became active, and when its green began.
+    """One light's decoded state: its phase, when the phase became active and
+    when its green began, and the display they were decoded from.
 
-    SUMO reports neither across a transition boundary, so both are tracked --
-    see `Projector._project_signals`.
+    SUMO reports none of these in canonical terms, so all are tracked across
+    steps -- see `Projector._project_signals`.
     """
 
+    active_phase: PhaseId
     phase_started_s: float
     green_started_s: float | None
     in_transition: bool
-    phase_index: int
+    ryg_state: str
 
 
 @dataclass(slots=True)
@@ -123,11 +126,17 @@ class Projector:
         lane_sumo_ids: tuple[str, ...],
         lane_lengths_m: tuple[float, ...],
         intersection_sumo_ids: tuple[str, ...],
+        phase_green_links: tuple[Mapping[PhaseId, frozenset[int]], ...],
+        start_s: float,
         vehicle_types: dict[str, VehicleType],
         step_length_s: float,
         gridlock_steps: int,
         max_accel_mps2: float,
     ) -> None:
+        """`phase_green_links[i]` holds the green link indices of every phase of
+        `IntersectionId(i)`, the light `intersection_sumo_ids[i]`
+        (`green_link_indices()`, D-034). `start_s` is the simulation's start time,
+        when the first phase shown became active."""
         self._lane_sumo_ids = lane_sumo_ids
         self._lane_lengths_m = lane_lengths_m
         # SUMO's string IDs are resolved to dense integers once, at start, so
@@ -135,6 +144,17 @@ class Projector:
         # (`05_DOMAIN_MODEL.md` §1.2, D-031).
         self._lane_index = {sumo_id: LaneId(i) for i, sumo_id in enumerate(lane_sumo_ids)}
         self._intersection_sumo_ids = intersection_sumo_ids
+        if len(phase_green_links) != len(intersection_sumo_ids):
+            raise BackendStartupError(
+                f"the network describes {len(phase_green_links)} signalized intersections, "
+                f"SUMO runs {len(intersection_sumo_ids)} traffic lights "
+                f"{list(intersection_sumo_ids)}"
+            )
+        self._phase_by_green = tuple(
+            _phase_by_green(sumo_id, greens)
+            for sumo_id, greens in zip(intersection_sumo_ids, phase_green_links, strict=True)
+        )
+        self._start_s = start_s
         self._vehicle_types = vehicle_types
         self._step_length_s = step_length_s
         self._gridlock_steps = gridlock_steps
@@ -365,90 +385,114 @@ class Projector:
         return tuple(lanes)
 
     def _project_signals(self, raw: RawStep, time_s: float) -> tuple[SignalState, ...]:
-        """Project each traffic light, tracking when its phase and its green began.
+        """Decode each light's displayed string into a canonical `SignalState` (D-034).
 
-        `phase_started_s` and `green_started_s` are **different instants**, and
-        that difference is the point of the 2026-08-24 amendment: a phase becomes
-        active when the transition *into* it begins, and its green begins when
-        that transition ends. The amendment's own arithmetic -- `now -
-        phase_started_s - yellow_s - all_red_s` as the formula a consumer would
-        otherwise have had to write -- only holds under that reading.
+        SUMO's program phase index is not used: once a controller drives a light,
+        SUMO runs its `online` program, whose index is always 0. What the light
+        shows is decoded instead:
 
-        Neither instant is directly available from SUMO. `TL_SPENT_DURATION`
-        measures the current *SUMO* phase, and SUMO models a transition as a
-        phase of its own, so it resets when green begins and again when the next
-        yellow begins. The transition boundary is therefore tracked here, from
-        the one signal that is always available and needs no phase table:
-        whether the current state string shows green to anybody.
+        * a display whose green link set (`G` and `g` alike) equals exactly one
+          phase's is that phase, green;
+        * a display with no green link is a transition -- yellow or all-red --
+          and `active_phase` stays the phase being left;
+        * a non-empty green set matching no phase raises, rather than guessing.
 
-        Two consequences worth knowing:
+        `phase_started_s` is when the transition into the phase began -- or the
+        start time, for the first phase shown -- and `green_started_s` when its
+        green began, `None` during a transition. The display read after a step
+        to `t` is the one shown during that step, so a change first seen at `t`
+        began at `t - step_length_s`: the instant SUMO's static program switched
+        (measured on 1.27.1: a new program phase reads a spent duration of one
+        step when first seen) and the instant a controller applied it (before
+        the step).
 
-        * While a transition is running, `active_phase` is SUMO's index for the
-          transition phase itself, not for the phase being transitioned into --
-          SUMO has no notion of the latter. `phase_started_s` and `active_phase`
-          therefore describe the same phase only once `in_transition` is false.
-        * The tracked instants travel in the snapshot sidecar, because a SUMO
-          state file does not carry them (D-032).
+        The tracked state travels in the snapshot sidecar, because a SUMO state
+        file does not carry it (D-032).
         """
         signals: list[SignalState] = []
         for index, sumo_id in enumerate(self._intersection_sumo_ids):
-            raw_signal = raw.signals[sumo_id]
-            # A phase showing no green to anybody is a transition -- yellow or
-            # all-red. Derived from the state string so that it needs no
-            # knowledge of how the program was authored, and so that it stays
-            # correct while a controller drives the signal directly.
-            in_transition = "g" not in raw_signal.ryg_state.lower()
-            # The instant the display last changed. At a genuine SUMO phase
-            # boundary the new phase has been running for exactly one step, so
-            # this is SUMO's own switch instant rather than the step at which we
-            # noticed -- a one-step difference that would otherwise make the
-            # first cycle a step longer than every later one. The clamp handles
-            # a controller override (T1.7), which changes the display without
-            # changing the SUMO phase and so leaves `spent_duration_s` running.
-            changed_s = time_s - min(raw_signal.spent_duration_s, self._step_length_s)
+            ryg_state = raw.signals[sumo_id].ryg_state
             record = self._signals.get(sumo_id)
-
-            if record is None:
-                # First observation: fall back to SUMO's own spent duration,
-                # which is the best available and is exact whenever the run
-                # starts at a phase boundary.
-                started_s = time_s - raw_signal.spent_duration_s
-                record = _SignalRecord(
-                    phase_started_s=started_s,
-                    green_started_s=None if in_transition else started_s,
-                    in_transition=in_transition,
-                    phase_index=raw_signal.phase_index,
-                )
-                self._signals[sumo_id] = record
-            elif in_transition and not record.in_transition:
-                # The transition into the next phase has started, so the next
-                # phase became active then.
-                record.phase_started_s = changed_s
-                record.green_started_s = None
-            elif not in_transition and record.in_transition:
-                # Green began. `phase_started_s` deliberately stays where the
-                # transition put it.
-                record.green_started_s = changed_s
-            elif not in_transition and raw_signal.phase_index != record.phase_index:
-                # Green straight to green with no transition between them: a
-                # program that omits one, or a controller override. Both
-                # instants coincide.
-                record.phase_started_s = changed_s
-                record.green_started_s = changed_s
-
-            record.in_transition = in_transition
-            record.phase_index = raw_signal.phase_index
-
+            if record is None or ryg_state != record.ryg_state:
+                record = self._decode_change(index, sumo_id, ryg_state, record, time_s)
             signals.append(
                 SignalState(
                     intersection=IntersectionId(index),
-                    active_phase=PhaseId(raw_signal.phase_index),
+                    active_phase=record.active_phase,
                     phase_started_s=record.phase_started_s,
                     green_started_s=record.green_started_s,
-                    in_transition=in_transition,
+                    in_transition=record.in_transition,
                 )
             )
         return tuple(signals)
+
+    def _decode_change(
+        self,
+        index: int,
+        sumo_id: str,
+        ryg_state: str,
+        record: _SignalRecord | None,
+        time_s: float,
+    ) -> _SignalRecord:
+        """Update one light's record for a display it was not showing a step ago."""
+        phase = self._green_phase(index, sumo_id, ryg_state, time_s)
+        changed_s = time_s - self._step_length_s
+
+        if record is None:
+            if phase is None:
+                raise BackendStartupError(
+                    f"traffic light {sumo_id!r} shows no green at its first projected step "
+                    f"(t={time_s}, {ryg_state!r}); a transition is named by the phase being "
+                    f"left, and no phase has been shown yet (D-034)"
+                )
+            record = _SignalRecord(
+                active_phase=phase,
+                phase_started_s=self._start_s,
+                green_started_s=self._start_s,
+                in_transition=False,
+                ryg_state=ryg_state,
+            )
+            self._signals[sumo_id] = record
+            return record
+
+        if phase is None:
+            if not record.in_transition:
+                # The transition into the next phase has started, so the next
+                # phase became active then; the one being left stays named.
+                record.phase_started_s = changed_s
+                record.green_started_s = None
+                record.in_transition = True
+        elif record.in_transition:
+            # Green began. `phase_started_s` stays where the transition put it.
+            record.active_phase = phase
+            record.green_started_s = changed_s
+            record.in_transition = False
+        elif phase != record.active_phase:
+            # Green straight to green with no transition between them: both
+            # instants coincide.
+            record.active_phase = phase
+            record.phase_started_s = changed_s
+            record.green_started_s = changed_s
+        record.ryg_state = ryg_state
+        return record
+
+    def _green_phase(
+        self, index: int, sumo_id: str, ryg_state: str, time_s: float
+    ) -> PhaseId | None:
+        """The phase whose green link set the display shows; `None` if nothing is green."""
+        phases = self._phase_by_green[index]
+        green = frozenset(link for link, char in enumerate(ryg_state) if char in "Gg")
+        if not green:
+            return None
+        phase = phases.get(green)
+        if phase is None:
+            known = {int(p): sorted(links) for links, p in phases.items()}
+            raise BackendStartupError(
+                f"traffic light {sumo_id!r} shows green on links {sorted(green)} at t={time_s} "
+                f"({ryg_state!r}), which is no phase's green link set {known}; refusing to "
+                f"guess (D-034)"
+            )
+        return phase
 
     def _project_counters(self, raw: RawStep, vehicles: tuple[VehicleState, ...]) -> RunCounters:
         counters = self._counters
@@ -505,10 +549,11 @@ class Projector:
             },
             "signals": {
                 sumo_id: [
+                    int(record.active_phase),
                     record.phase_started_s,
                     record.green_started_s,
                     record.in_transition,
-                    record.phase_index,
+                    record.ryg_state,
                 ]
                 for sumo_id, record in self._signals.items()
             },
@@ -544,10 +589,37 @@ class Projector:
         }
         self._signals = {
             sumo_id: _SignalRecord(
-                phase_started_s=float(fields[0]),
-                green_started_s=None if fields[1] is None else float(fields[1]),
-                in_transition=bool(fields[2]),
-                phase_index=int(fields[3]),
+                active_phase=PhaseId(int(fields[0])),
+                phase_started_s=float(fields[1]),
+                green_started_s=None if fields[2] is None else float(fields[2]),
+                in_transition=bool(fields[3]),
+                ryg_state=str(fields[4]),
             )
             for sumo_id, fields in payload["signals"].items()
         }
+
+
+def _phase_by_green(
+    sumo_id: str, green_links: Mapping[PhaseId, frozenset[int]]
+) -> dict[frozenset[int], PhaseId]:
+    """Invert one intersection's phase -> green links table, for decoding.
+
+    Two phases with the same green link set cannot be told apart from the
+    display (D-034's revisit trigger), and a phase with none cannot be told from
+    a transition; both are refused at start rather than decoded ambiguously.
+    """
+    by_green: dict[frozenset[int], PhaseId] = {}
+    for phase, links in green_links.items():
+        if not links:
+            raise BackendStartupError(
+                f"phase {int(phase)} of traffic light {sumo_id!r} greens no link, so its "
+                f"display cannot be told from a transition (D-034)"
+            )
+        if links in by_green:
+            raise BackendStartupError(
+                f"phases {int(by_green[links])} and {int(phase)} of traffic light {sumo_id!r} "
+                f"green the same links {sorted(links)}; the display cannot tell them apart "
+                f"(D-034's revisit trigger)"
+            )
+        by_green[links] = phase
+    return by_green

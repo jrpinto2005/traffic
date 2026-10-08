@@ -15,28 +15,11 @@ import pytest
 import sumolib
 import traci
 
-from tests.scenarios.conftest import Built
+from tests.generated_scenario import OVERLOAD_PERIOD_S, Built, one_flow_per_movement
 from traffic_lab.backend import BackendConfig, SumoBackend, TransportName
 from traffic_lab.domain.network import PhaseId, movements_of
 
 SUMO = sumolib.checkBinary("sumo")
-
-
-def _demand(built: Built, path: Path, end_s: float) -> Path:
-    """One flow per movement, so every movement has vehicles on it. Test fixture
-    only -- demand generation is T1.5."""
-    network, ids = built.network, built.ids
-    (intersection,) = network.signalized_intersections
-    lines = ["<routes>"]
-    for movement in movements_of(network, intersection.junction):
-        lines.append(
-            f'    <flow id="m{int(movement.id)}" from="{ids.edges[movement.from_edge]}" '
-            f'to="{ids.edges[movement.to_edge]}" begin="0" end="{end_s}" period="7" '
-            f'departLane="best" departSpeed="max"/>'
-        )
-    lines.append("</routes>")
-    path.write_text("\n".join(lines) + "\n")
-    return path
 
 
 def _cycle_s(built: Built) -> float:
@@ -54,7 +37,9 @@ def test_sumo_loads_and_runs_the_net_with_no_warnings(generated: Built, tmp_path
     this machine -- a warning about the process environment, not the network.
     """
     end_s = 2 * _cycle_s(generated) + 60.0
-    routes = _demand(generated, tmp_path / "demand.rou.xml", end_s - 60.0)
+    routes = one_flow_per_movement(
+        generated, tmp_path / "demand.rou.xml", end_s - 60.0, period_s=OVERLOAD_PERIOD_S
+    )
     result = subprocess.run(
         [
             SUMO,
@@ -98,6 +83,7 @@ def test_backend_index_follows_the_generator_id_mapping(
         generated.net,
         routes,
         BackendConfig(transport=transport, seed=1, decision_interval_s=1.0, gridlock_steps=100),
+        network=generated.network,
     )
     try:
         assert backend.index.lane_sumo_ids == generated.ids.lanes

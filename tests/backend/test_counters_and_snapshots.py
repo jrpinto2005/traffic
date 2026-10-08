@@ -13,39 +13,59 @@ and when one is produced, is T1.6's policy question.
 
 from __future__ import annotations
 
+import dataclasses
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 
-from tests.backend.conftest import make_config
+from tests.backend.conftest import Scenario, make_config
+from tests.generated_scenario import Built
 from traffic_lab.backend import SumoBackend
-from traffic_lab.domain.network import IntersectionId
+from traffic_lab.domain.network import TurnDirection
 from traffic_lab.domain.state import TrueState
 
-#: Four approaches at 3600 veh/h into a single-lane-per-movement intersection.
-#: Far above capacity, which is how `research/M0_footguns.md` induces both
-#: insertion loss and gridlock.
-_OVERLOAD_ROUTES = """<routes>
-    <vType id="passenger" vClass="passenger" accel="2.6" decel="4.5" sigma="0.5"
-           length="5.0" minGap="2.5" maxSpeed="13.89"/>
-    <route id="n_s" edges="n_in s_out"/>
-    <route id="s_n" edges="s_in n_out"/>
-    <route id="e_w" edges="e_in w_out"/>
-    <route id="w_e" edges="w_in e_out"/>
-    <flow id="f0" type="passenger" route="n_s" begin="0" end="3600" vehsPerHour="3600"
-          departLane="0" departSpeed="max"/>
-    <flow id="f1" type="passenger" route="s_n" begin="0" end="3600" vehsPerHour="3600"
-          departLane="0" departSpeed="max"/>
-    <flow id="f2" type="passenger" route="e_w" begin="0" end="3600" vehsPerHour="3600"
-          departLane="0" departSpeed="max"/>
-    <flow id="f3" type="passenger" route="w_e" begin="0" end="3600" vehsPerHour="3600"
-          departLane="0" departSpeed="max"/>
-</routes>
-"""
+_VTYPE = (
+    '    <vType id="passenger" vClass="passenger" accel="2.6" decel="4.5" sigma="0.5" '
+    'length="5.0" minGap="2.5" maxSpeed="13.89"/>'
+)
 
-#: Every link red. The reference network has eight controlled connections.
-_ALL_RED = "r" * 8
+
+def _through_routes(built: Built) -> list[tuple[str, str]]:
+    """`(route id, edges)` for each approach's through movement, from the network."""
+    edges = built.ids.edges
+    return [
+        (f"m{int(m.id)}", f"{edges[m.from_edge]} {edges[m.to_edge]}")
+        for m in built.movements
+        if m.turn is TurnDirection.THROUGH
+    ]
+
+
+#: Overload demand: every through movement at this rate, from lane 0.
+_OVERLOAD_VEH_PER_HOUR = 3600
+_OVERLOAD_END_S = 3600
+
+
+def _overload_routes(built: Built) -> str:
+    """Every through movement at 3600 veh/h, all from lane 0: far above capacity,
+    which is how `research/M0_footguns.md` induces both insertion loss and
+    gridlock."""
+    lines = ["<routes>", _VTYPE]
+    for route_id, edges in _through_routes(built):
+        lines.append(f'    <route id="{route_id}" edges="{edges}"/>')
+    for route_id, _ in _through_routes(built):
+        lines.append(
+            f'    <flow id="f_{route_id}" type="passenger" route="{route_id}" begin="0" '
+            f'end="{_OVERLOAD_END_S}" vehsPerHour="{_OVERLOAD_VEH_PER_HOUR}" departLane="0" '
+            f'departSpeed="max"/>'
+        )
+    lines.append("</routes>")
+    return "\n".join(lines) + "\n"
+
+
+def _overload_demanded(built: Built, horizon_s: float) -> float:
+    """Vehicles `_overload_routes` asks to insert within `horizon_s`."""
+    return len(_through_routes(built)) * _OVERLOAD_VEH_PER_HOUR * horizon_s / 3600.0
 
 
 def _tripinfo_legs(path: Path) -> tuple[int, int, int]:
@@ -57,9 +77,7 @@ def _tripinfo_legs(path: Path) -> tuple[int, int, int]:
     return len(finished), len(departed) - len(finished), len(undeparted)
 
 
-def test_trip_accounting_matches_sumos_own_tripinfo(
-    reference_net: Path, reference_routes: Path, tmp_path: Path
-) -> None:
+def test_trip_accounting_matches_sumos_own_tripinfo(scenario: Scenario, tmp_path: Path) -> None:
     """D-022's three legs, each against the native output that defines it.
 
     This is also `05_DOMAIN_MODEL.md` SS8 invariant 14 -- served plus unserved
@@ -67,7 +85,9 @@ def test_trip_accounting_matches_sumos_own_tripinfo(
     """
     tripinfo = tmp_path / "tripinfo.xml"
     backend = SumoBackend()
-    backend.start(reference_net, reference_routes, make_config(tripinfo_path=tripinfo))
+    backend.start(
+        scenario.net, scenario.routes, make_config(tripinfo_path=tripinfo), network=scenario.network
+    )
     try:
         for _ in range(600):
             backend.step()
@@ -83,29 +103,30 @@ def test_trip_accounting_matches_sumos_own_tripinfo(
     assert finished > 0 and unfinished > 0
 
 
-def test_no_mid_link_arrivals_where_the_scenario_has_no_attrition(
-    reference_net: Path, reference_routes: Path
-) -> None:
-    """The reference scenario sets no `arrivalPos`, so every arrival is a sink one.
+def test_no_mid_link_arrivals_where_the_scenario_has_no_attrition(scenario: Scenario) -> None:
+    """The scenario sets no `arrivalPos`, so every arrival is a sink one.
 
     A sharp test of the sink/mid-link split, and the one that caught the
     constant-speed bound: it reported 8 spurious mid-link arrivals here because
     a vehicle accelerating in its final unobserved step covers more than v*dt.
     """
     backend = SumoBackend()
-    backend.start(reference_net, reference_routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         for _ in range(600):
             backend.step()
             state = backend.project()
     finally:
         backend.close()
-    assert state.counters.arrived_at_sink > 300
+    # Enough arrivals for the split to mean something: on average at least one
+    # vehicle per movement per cycle of the static program.
+    built = scenario.built
+    assert state.counters.arrived_at_sink > len(built.movements) * 600 / built.static_cycle_s()
     assert state.counters.arrived_mid_link == 0
 
 
 def test_teleports_stay_zero_and_insertion_loss_is_what_fires(
-    reference_net: Path, tmp_path: Path
+    scenario: Scenario, tmp_path: Path
 ) -> None:
     """D-008 as re-prioritised on 2026-08-18, reproduced.
 
@@ -113,18 +134,25 @@ def test_teleports_stay_zero_and_insertion_loss_is_what_fires(
     spills out of the network before a vehicle can be trapped long enough to
     teleport, so the overload is absorbed as insertion loss. The teleport counter
     staying zero is therefore the expected result, not a broken counter -- and
-    the insertion counter reading 1500 against SUMO's own 1500 undeparted
-    vehicles is what shows the counters are live.
+    the insertion counter agreeing with SUMO's own undeparted count, at more
+    than half of the demand, is what shows the counters are live.
     """
     routes = tmp_path / "overload.rou.xml"
-    routes.write_text(_OVERLOAD_ROUTES)
+    routes.write_text(_overload_routes(scenario.built))
     tripinfo = tmp_path / "tripinfo.xml"
 
     backend = SumoBackend()
-    backend.start(reference_net, routes, make_config(tripinfo_path=tripinfo))
+    backend.start(
+        scenario.net, routes, make_config(tripinfo_path=tripinfo), network=scenario.network
+    )
     try:
+        # One step of the static program's first phase first: a light that has
+        # never shown a phase has no phase being left to name, and the
+        # projection refuses to guess one (D-034).
+        backend.step()
+        backend.project()
         for _ in range(400):
-            backend.apply(IntersectionId(0), _ALL_RED)
+            backend.apply(scenario.built.intersection_id, scenario.built.all_red)
             backend.step()
             state = backend.project()
     finally:
@@ -132,26 +160,30 @@ def test_teleports_stay_zero_and_insertion_loss_is_what_fires(
 
     _finished, _unfinished, undeparted = _tripinfo_legs(tripinfo)
     assert state.counters.teleports == 0
-    assert state.counters.insertion_failures == undeparted > 1000
+    assert state.counters.insertion_failures == undeparted
+    assert undeparted > _overload_demanded(scenario.built, 400) / 2
 
 
-#: One car every 20 s on one approach: nothing can fail to insert. Explicit
-#: `<vehicle>` elements rather than a `<flow>`, because that is what `jtrrouter`
-#: emits and therefore what T1.5's demand files will contain.
-_TRICKLE_ROUTES = (
-    '<routes>\n    <vType id="passenger" vClass="passenger"/>\n'
-    '    <route id="n_s" edges="n_in s_out"/>\n'
-    + "".join(
-        f'    <vehicle id="v{t}" type="passenger" route="n_s" depart="{t}" departLane="0"/>\n'
-        for t in range(0, 600, 20)
+def _trickle_routes(built: Built) -> str:
+    """One car every 20 s on one approach's through movement: nothing can fail to
+    insert. Explicit `<vehicle>` elements rather than a `<flow>`, because that is
+    what `jtrrouter` emits and therefore what T1.5's demand files will contain."""
+    route_id, edges = _through_routes(built)[0]
+    return (
+        '<routes>\n    <vType id="passenger" vClass="passenger"/>\n'
+        f'    <route id="{route_id}" edges="{edges}"/>\n'
+        + "".join(
+            f'    <vehicle id="v{t}" type="passenger" route="{route_id}" depart="{t}" '
+            f'departLane="0"/>\n'
+            for t in range(0, 600, 20)
+        )
+        + "</routes>\n"
     )
-    + "</routes>\n"
-)
 
 
 @pytest.mark.parametrize("transport", ["traci", "libsumo"])
 def test_explicit_vehicles_not_yet_due_are_not_insertion_failures(
-    reference_net: Path, tmp_path: Path, transport: str
+    scenario: Scenario, tmp_path: Path, transport: str
 ) -> None:
     """Regression: the counter was `loaded - departed`.
 
@@ -161,10 +193,10 @@ def test_explicit_vehicles_not_yet_due_are_not_insertion_failures(
     demand that was being served perfectly.
     """
     routes = tmp_path / "trickle.rou.xml"
-    routes.write_text(_TRICKLE_ROUTES)
+    routes.write_text(_trickle_routes(scenario.built))
 
     backend = SumoBackend()
-    backend.start(reference_net, routes, make_config(transport=transport))
+    backend.start(scenario.net, routes, make_config(transport=transport), network=scenario.network)
     try:
         readings = []
         for _ in range(300):
@@ -177,18 +209,23 @@ def test_explicit_vehicles_not_yet_due_are_not_insertion_failures(
 
 
 def test_gridlock_is_detected_after_the_configured_number_of_still_steps(
-    reference_net: Path, tmp_path: Path
+    scenario: Scenario, tmp_path: Path
 ) -> None:
     """D-008 item 3: "no vehicle has moved for N steps", N configurable."""
     routes = tmp_path / "overload.rou.xml"
-    routes.write_text(_OVERLOAD_ROUTES)
+    routes.write_text(_overload_routes(scenario.built))
 
     backend = SumoBackend()
-    backend.start(reference_net, routes, make_config(gridlock_steps=30))
+    backend.start(scenario.net, routes, make_config(gridlock_steps=30), network=scenario.network)
     try:
+        # One step of the static program's first phase first: a light that has
+        # never shown a phase has no phase being left to name, and the
+        # projection refuses to guess one (D-034).
+        backend.step()
+        backend.project()
         detected_at = None
         for step in range(400):
-            backend.apply(IntersectionId(0), _ALL_RED)
+            backend.apply(scenario.built.intersection_id, scenario.built.all_red)
             backend.step()
             state = backend.project()
             if state.counters.gridlock_detected and detected_at is None:
@@ -203,9 +240,7 @@ def test_gridlock_is_detected_after_the_configured_number_of_still_steps(
     assert state.counters.gridlock_detected, "gridlock is sticky once detected"
 
 
-def test_an_empty_network_is_not_gridlocked(
-    reference_net: Path, reference_routes: Path, tmp_path: Path
-) -> None:
+def test_an_empty_network_is_not_gridlocked(scenario: Scenario, tmp_path: Path) -> None:
     """An empty network is empty, not jammed.
 
     Without this, `gridlock_steps` would fire on every run that starts from an
@@ -215,7 +250,7 @@ def test_an_empty_network_is_not_gridlocked(
     routes.write_text('<routes>\n    <vType id="passenger" vClass="passenger"/>\n</routes>\n')
 
     backend = SumoBackend()
-    backend.start(reference_net, routes, make_config(gridlock_steps=5))
+    backend.start(scenario.net, routes, make_config(gridlock_steps=5), network=scenario.network)
     try:
         for _ in range(50):
             backend.step()
@@ -242,19 +277,25 @@ def _run_to(backend: SumoBackend, steps: int) -> TrueState:
 
 @pytest.mark.parametrize("transport", ["traci", "libsumo"])
 def test_a_loaded_snapshot_reproduces_the_state_it_was_saved_from(
-    transport: str, reference_net: Path, reference_routes: Path, tmp_path: Path
+    transport: str, scenario: Scenario, tmp_path: Path
 ) -> None:
     """D-032's mechanism, to the precision SUMO's state file actually carries.
 
     Everything the adapter itself keeps -- canonical IDs, lane assignment,
-    halting timers, stop counts, the signal phase, all of `RunCounters` -- round
-    trips **exactly**, because it travels in our own sidecar. Everything SUMO
-    keeps round trips to 0.01, because that is the precision its state file is
-    written at. See `_STATE_FILE_PRECISION_M`.
+    halting timers, stop counts, the signal phase, the cumulative counters --
+    round trips **exactly**, because it travels in our own sidecar. Everything
+    SUMO keeps round trips to 0.01, because that is the precision its state file
+    is written at. See `_STATE_FILE_PRECISION_M`.
+
+    `insertion_failures` is the exception and is not compared here: it is not in
+    the sidecar but read live from SUMO, which reports it wrongly at the instant
+    of a load -- see `test_the_pending_list_reads_empty_at_the_instant_of_a_load`.
     """
     snapshot = tmp_path / "state.xml"
     backend = SumoBackend()
-    backend.start(reference_net, reference_routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         saved = _run_to(backend, 120)
         backend.save_state(snapshot)
@@ -264,13 +305,15 @@ def test_a_loaded_snapshot_reproduces_the_state_it_was_saved_from(
         backend.close()
 
     assert loaded.time_s == saved.time_s
-    assert loaded.counters == saved.counters
+    assert dataclasses.replace(loaded.counters, insertion_failures=0) == dataclasses.replace(
+        saved.counters, insertion_failures=0
+    )
     assert loaded.signals == saved.signals
     assert [lane.queue_count for lane in loaded.lanes] == [lane.queue_count for lane in saved.lanes]
 
     by_id = {vehicle.id: vehicle for vehicle in saved.vehicles}
     assert {vehicle.id for vehicle in loaded.vehicles} == set(by_id)
-    assert len(by_id) > 20
+    assert len(by_id) > scenario.free_flow_population
     for vehicle in loaded.vehicles:
         before = by_id[vehicle.id]
         assert vehicle.lane == before.lane
@@ -284,7 +327,42 @@ def test_a_loaded_snapshot_reproduces_the_state_it_was_saved_from(
         assert abs(vehicle.time_loss_s - before.time_loss_s) <= _STATE_FILE_PRECISION_M
 
 
-def _replay(transport: str, net: Path, routes: Path, snapshot: Path, steps: int) -> list[TrueState]:
+@pytest.mark.parametrize("transport", ["traci", "libsumo"])
+def test_the_pending_list_reads_empty_at_the_instant_of_a_load(
+    transport: str, scenario: Scenario, tmp_path: Path
+) -> None:
+    """A SUMO quirk that `insertion_failures` inherits, recorded rather than hidden.
+
+    `insertion_failures` is SUMO's pending-vehicle list, read live rather than
+    kept in the sidecar, and SUMO reports that list **empty at the instant of a
+    load** although the insertion backlog is restored: one step later it is back
+    (measured on 1.27.1, both transports: the loaded run's pending list then
+    equals the un-snapshotted continuation's). The M0 reference scenario had no
+    backlog at its snapshot, so this went unseen until T1.14 moved the snapshot
+    tests to another demand. Run on the overload demand, which guarantees a
+    backlog. If this ever fails, SUMO began reporting the backlog at load and
+    the snapshot test above can compare `insertion_failures` too.
+    """
+    routes = tmp_path / "overload.rou.xml"
+    routes.write_text(_overload_routes(scenario.built))
+    snapshot = tmp_path / "state.xml"
+    backend = SumoBackend()
+    backend.start(scenario.net, routes, make_config(transport=transport), network=scenario.network)
+    try:
+        saved = _run_to(backend, 120)
+        backend.save_state(snapshot)
+        backend.load_state(snapshot)
+        loaded = backend.project()
+        one_step_later = _run_to(backend, 1)
+    finally:
+        backend.close()
+
+    assert saved.counters.insertion_failures > 0
+    assert loaded.counters.insertion_failures == 0
+    assert one_step_later.counters.insertion_failures > 0
+
+
+def _replay(transport: str, scenario: Scenario, snapshot: Path, steps: int) -> list[TrueState]:
     """Start fresh, load the snapshot immediately, and run.
 
     This is the shape T1.6 will use, and the shape that is deterministic. See
@@ -292,7 +370,9 @@ def _replay(transport: str, net: Path, routes: Path, snapshot: Path, steps: int)
     that the load happens before anything else consumes randomness.
     """
     backend = SumoBackend()
-    backend.start(net, routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         backend.load_state(snapshot)
         states = []
@@ -304,9 +384,9 @@ def _replay(transport: str, net: Path, routes: Path, snapshot: Path, steps: int)
         backend.close()
 
 
-def _produce(net: Path, routes: Path, snapshot: Path) -> None:
+def _produce(scenario: Scenario, snapshot: Path) -> None:
     backend = SumoBackend()
-    backend.start(net, routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         _run_to(backend, 120)
         backend.save_state(snapshot)
@@ -316,7 +396,7 @@ def _produce(net: Path, routes: Path, snapshot: Path) -> None:
 
 @pytest.mark.parametrize("transport", ["traci", "libsumo"])
 def test_replaying_a_snapshot_is_deterministic(
-    transport: str, reference_net: Path, reference_routes: Path, tmp_path: Path
+    transport: str, scenario: Scenario, tmp_path: Path
 ) -> None:
     """The property D-032 actually needs: one snapshot, one evolution.
 
@@ -327,17 +407,17 @@ def test_replaying_a_snapshot_is_deterministic(
     from it, which is what makes a neutral-snapshot comparison controlled.
     """
     snapshot = tmp_path / "state.xml"
-    _produce(reference_net, reference_routes, snapshot)
+    _produce(scenario, snapshot)
 
-    first = _replay(transport, reference_net, reference_routes, snapshot, 40)
-    second = _replay(transport, reference_net, reference_routes, snapshot, 40)
+    first = _replay(transport, scenario, snapshot, 40)
+    second = _replay(transport, scenario, snapshot, 40)
 
     assert first == second
-    assert len(first[-1].vehicles) > 20
+    assert len(first[-1].vehicles) > scenario.free_flow_population
 
 
 def test_a_replay_depends_on_the_processs_rng_history_too(
-    reference_net: Path, reference_routes: Path, tmp_path: Path
+    scenario: Scenario, tmp_path: Path
 ) -> None:
     """`loadState` restores the vehicles but **not** SUMO's RNG.
 
@@ -349,10 +429,10 @@ def test_a_replay_depends_on_the_processs_rng_history_too(
     the arms of a neutral-snapshot comparison are not comparable after all.
     """
     snapshot = tmp_path / "state.xml"
-    _produce(reference_net, reference_routes, snapshot)
+    _produce(scenario, snapshot)
 
     backend = SumoBackend()
-    backend.start(reference_net, reference_routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         backend.load_state(snapshot)
         first = [_run_to(backend, 1) for _ in range(40)]
@@ -368,9 +448,7 @@ def test_a_replay_depends_on_the_processs_rng_history_too(
     )
 
 
-def test_save_and_load_do_not_differ_between_transports(
-    reference_net: Path, reference_routes: Path, tmp_path: Path
-) -> None:
+def test_save_and_load_do_not_differ_between_transports(scenario: Scenario, tmp_path: Path) -> None:
     """T1.4's third escalation condition, checked rather than assumed.
 
     "Escalate if `save_state` / `load_state` differ between transports." They do
@@ -379,10 +457,10 @@ def test_save_and_load_do_not_differ_between_transports(
     and this asserts that the difference stops there.
     """
     snapshot = tmp_path / "state.xml"
-    _produce(reference_net, reference_routes, snapshot)
+    _produce(scenario, snapshot)
 
-    over_traci = _replay("traci", reference_net, reference_routes, snapshot, 20)
-    over_libsumo = _replay("libsumo", reference_net, reference_routes, snapshot, 20)
+    over_traci = _replay("traci", scenario, snapshot, 20)
+    over_libsumo = _replay("libsumo", scenario, snapshot, 20)
 
     assert over_traci == over_libsumo
-    assert len(over_traci[-1].vehicles) > 20
+    assert len(over_traci[-1].vehicles) > scenario.free_flow_population

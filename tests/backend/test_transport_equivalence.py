@@ -17,21 +17,25 @@ the two are reading different things, not that one rounded.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from tests.backend.conftest import make_config
+from tests.backend.conftest import Scenario, make_config
 from traffic_lab.backend import SumoBackend
 from traffic_lab.domain.state import TrueState
 
-#: Long enough to cover several full signal cycles (60 s each in the reference
-#: program), a saturated queue, and hundreds of arrivals, so the counters and the
-#: halting bookkeeping are all exercised rather than just the empty-network case.
-STEPS = 300
+#: Full cycles of the static program to run: enough for queues on every red and
+#: about a hundred arrivals, so the counters and the halting bookkeeping are all
+#: exercised rather than just the empty-network case.
+CYCLES = 5
 
 
-def _run(transport: str, net: Path, routes: Path, steps: int = STEPS) -> list[TrueState]:
+def _steps(scenario: Scenario) -> int:
+    return int(CYCLES * scenario.built.static_cycle_s())
+
+
+def _run(transport: str, scenario: Scenario, steps: int) -> list[TrueState]:
     backend = SumoBackend()
-    backend.start(net, routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         states = []
         for _ in range(steps):
@@ -42,26 +46,29 @@ def _run(transport: str, net: Path, routes: Path, steps: int = STEPS) -> list[Tr
         backend.close()
 
 
-def test_transports_produce_identical_true_state_sequences(
-    reference_net: Path, reference_routes: Path
-) -> None:
-    over_traci = _run("traci", reference_net, reference_routes)
-    over_libsumo = _run("libsumo", reference_net, reference_routes)
+def test_transports_produce_identical_true_state_sequences(scenario: Scenario) -> None:
+    steps = _steps(scenario)
+    over_traci = _run("traci", scenario, steps)
+    over_libsumo = _run("libsumo", scenario, steps)
 
-    assert len(over_traci) == len(over_libsumo) == STEPS
+    assert len(over_traci) == len(over_libsumo) == steps
     for step, (traci_state, libsumo_state) in enumerate(zip(over_traci, over_libsumo, strict=True)):
         assert traci_state == libsumo_state, f"transports diverge at step {step}"
 
 
-def test_the_sequence_is_not_trivially_empty(reference_net: Path, reference_routes: Path) -> None:
+def test_the_sequence_is_not_trivially_empty(scenario: Scenario) -> None:
     """Guard against the equivalence test passing on two empty simulations.
 
     An equality assertion over two runs that both did nothing would pass and
     prove nothing, so the fixture's own liveness is asserted separately rather
     than assumed.
     """
-    states = _run("traci", reference_net, reference_routes)
-    assert max(len(state.vehicles) for state in states) > 20
+    states = _run("traci", scenario, _steps(scenario))
+    # More vehicles at once than the network holds when nothing waits.
+    assert max(len(state.vehicles) for state in states) > scenario.free_flow_population
     assert max(lane.queue_count for state in states for lane in state.lanes) > 0
     assert states[-1].counters.arrived_at_sink > 0
-    assert len({state.signals[0].active_phase for state in states}) == 4
+    # Every authored phase was shown, decoded as a canonical phase (D-034).
+    assert {state.signals[0].active_phase for state in states} == {
+        phase.id for phase in scenario.built.intersection.phases
+    }

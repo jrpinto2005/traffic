@@ -12,18 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.scenarios.conftest import (
-    FOUR_WAY,
-    TIMING,
-    Built,
-    L,
-    R,
-    S,
-    assert_round_trip,
-    foe_bit,
-    raw_net,
-    request_rows,
-)
+from tests.generated_scenario import FOUR_WAY, TIMING, Built, L, R, S
+from tests.scenarios.conftest import assert_round_trip, foe_bit, raw_net, request_rows
 from traffic_lab.domain.network import (
     IntersectionId,
     NetworkValidationError,

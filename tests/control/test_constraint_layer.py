@@ -599,3 +599,54 @@ def test_a_phase_in_the_mask_is_never_refused() -> None:
     assert layer.counters.rejected == 0
     assert layer.counters.deferred == 0
     assert layer.counters.granted > 0
+
+
+# --- display() (T1.14, D-034) -------------------------------------------------
+
+
+def test_display_names_the_phase_being_left_during_yellow() -> None:
+    """GREEN shows the active phase; YELLOW the phase being left, although
+    `signal_state()` already names the target; ALL_RED shows no phase."""
+    layer = build_layer(min_green_s=5.0, max_green_s=60.0, decision_interval_s=1.0)
+    shown: list[tuple[float, tuple[SignalStage, PhaseId | None], PhaseId]] = []
+    for now_s in (float(i) for i in range(16)):
+        layer.step(now_s)
+        if now_s == 5.0:
+            assert layer.submit(PhaseRequest(INTERSECTION, PHASE_EW), now_s).outcome is (
+                RequestOutcome.GRANTED
+            )
+        shown.append(
+            (now_s, layer.display(INTERSECTION), layer.signal_state(INTERSECTION).active_phase)
+        )
+
+    by_time = {now_s: (display, active) for now_s, display, active in shown}
+    assert by_time[4.0] == ((SignalStage.GREEN, PHASE_NS), PHASE_NS)
+    for now_s in (5.0, 6.0, 7.0):  # yellow_s = 3 s, from the grant at 5 s
+        assert by_time[now_s] == ((SignalStage.YELLOW, PHASE_NS), PHASE_EW)
+    for now_s in (8.0, 9.0):  # all_red_s = 2 s
+        assert by_time[now_s] == ((SignalStage.ALL_RED, None), PHASE_EW)
+    assert by_time[10.0] == ((SignalStage.GREEN, PHASE_EW), PHASE_EW)
+
+
+def test_display_follows_a_forced_max_green_override() -> None:
+    layer = build_layer(min_green_s=5.0, max_green_s=10.0, all_red_s=0.0)
+    displays = []
+    for now_s in (float(i) for i in range(30)):
+        layer.step(now_s)
+        displays.append(layer.display(INTERSECTION))
+
+    assert layer.counters.forced >= 2
+    # No all-red stage when all_red_s is 0; each yellow names the phase it ends.
+    assert (SignalStage.ALL_RED, None) not in displays
+    assert displays[10] == (SignalStage.YELLOW, PHASE_NS)
+    assert displays[13] == (SignalStage.GREEN, PHASE_EW)
+    assert displays[23] == (SignalStage.YELLOW, PHASE_EW)
+
+
+def test_display_is_read_only() -> None:
+    layer = build_layer()
+    layer.step(0.0)
+    before = (layer.signal_state(INTERSECTION), layer.counters.forced)
+    for _ in range(3):
+        layer.display(INTERSECTION)
+    assert (layer.signal_state(INTERSECTION), layer.counters.forced) == before

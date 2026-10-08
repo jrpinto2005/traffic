@@ -27,7 +27,8 @@ from typing import Any
 import pytest
 import traci
 
-from tests.backend.conftest import make_config
+from tests.backend.conftest import Scenario, make_config
+from tests.generated_scenario import OVERLOAD_PERIOD_S, one_flow_per_movement
 from traffic_lab.backend import SumoBackend
 from traffic_lab.backend import transport as transport_module
 
@@ -92,10 +93,16 @@ def counting_traci(monkeypatch: pytest.MonkeyPatch) -> _CountingApi:
 
 
 def test_traci_state_reads_per_step_do_not_scale_with_vehicle_count(
-    reference_net: Path, reference_routes: Path, counting_traci: _CountingApi
+    scenario: Scenario, counting_traci: _CountingApi, tmp_path: Path
 ) -> None:
+    """Needs a population that grows by far more than the sampling noise, so it
+    runs the overload demand rather than the shared fixture's, whose population
+    stays near its free-flow level."""
+    routes = one_flow_per_movement(
+        scenario.built, tmp_path / "overload.rou.xml", 3600.0, period_s=OVERLOAD_PERIOD_S
+    )
     backend = SumoBackend()
-    backend.start(reference_net, reference_routes, make_config(transport="traci"))
+    backend.start(scenario.net, routes, make_config(transport="traci"), network=scenario.network)
     try:
         backend.step()
         sparse = backend.project()
@@ -135,8 +142,7 @@ def test_traci_state_reads_per_step_do_not_scale_with_vehicle_count(
 @pytest.mark.parametrize("transport", ["traci", "libsumo"])
 def test_project_performs_exactly_one_batched_fetch(
     transport: str,
-    reference_net: Path,
-    reference_routes: Path,
+    scenario: Scenario,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Whatever the mechanism, `project()` reads the whole step exactly once."""
@@ -152,7 +158,9 @@ def test_project_performs_exactly_one_batched_fetch(
         monkeypatch.setattr(cls, "fetch", counted)
 
     backend = SumoBackend()
-    backend.start(reference_net, reference_routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         for _ in range(20):
             backend.step()

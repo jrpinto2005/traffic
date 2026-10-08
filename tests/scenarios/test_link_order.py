@@ -22,8 +22,9 @@ import numpy as np
 import pytest
 import sumolib
 
-from tests.scenarios.conftest import Built, load_ids, raw_net
-from tests.scenarios.test_runtime import SUMO, _check_display, _cycle_s, _demand, _shown
+from tests.generated_scenario import OVERLOAD_PERIOD_S, Built, load_ids, one_flow_per_movement
+from tests.scenarios.conftest import raw_net
+from tests.scenarios.test_runtime import SUMO, _check_display, _cycle_s, _shown
 from traffic_lab.domain.network import (
     IntersectionId,
     LaneConnectionId,
@@ -205,7 +206,9 @@ def test_sumo_runs_a_misindexed_program_without_a_single_warning(
     assert conflicting_pair(junction.conflicts, shown_movements) is not None
 
     end_s = 2 * _cycle_s(four_way) + 60.0
-    routes = _demand(four_way, tmp_path / "demand.rou.xml", end_s - 60.0)
+    routes = one_flow_per_movement(
+        four_way, tmp_path / "demand.rou.xml", end_s - 60.0, period_s=OVERLOAD_PERIOD_S
+    )
     result = subprocess.run(
         [
             SUMO,

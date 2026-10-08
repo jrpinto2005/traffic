@@ -53,7 +53,6 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -67,6 +66,10 @@ from traffic_lab.domain.network import (
     SignalizedIntersection,
     conflicting_pair,
 )
+
+# `SignalStage` moved to the domain in T1.14 (the backend needs it too) and is
+# re-exported here so existing imports keep working.
+from traffic_lab.domain.state import SignalStage as SignalStage
 from traffic_lab.domain.state import SignalState
 
 # Simulated seconds. Absorbs binary-floating-point error in accumulated step
@@ -172,19 +175,6 @@ def validate_decision_interval(config: ConstraintLayerConfig, network: Network) 
             )
 
 
-class SignalStage(StrEnum):
-    """The three stages of the one state machine: GREEN -> YELLOW -> ALL_RED -> GREEN.
-
-    Per D-023, yellow and all-red are **not** phases: they are attributes of a
-    change from one phase to another, executed here, and deliberately outside
-    the action space -- no controller should be able to choose "yellow".
-    """
-
-    GREEN = "green"
-    YELLOW = "yellow"
-    ALL_RED = "all_red"
-
-
 @dataclass(slots=True)
 class ConstraintCounters:
     """One counter per `RequestOutcome`, plus D-020's overshoot accounting.
@@ -235,6 +225,10 @@ class _Runtime:
 
     stage: SignalStage
     active_phase: PhaseId
+    leaving_phase: PhaseId
+    """The phase the current transition is leaving; meaningful only outside GREEN,
+    where `active_phase` is already the target. Kept so `display()` can say which
+    links are yellow."""
     phase_started_s: float
     green_started_s: float
     stage_ends_s: float
@@ -313,6 +307,7 @@ class ConstraintLayer:
                 # layer safe even when it is handed a network that was not
                 # validated, which is the whole point of a constraint layer.
                 active_phase=initial_phase,
+                leaving_phase=initial_phase,
                 phase_started_s=start_s,
                 green_started_s=start_s,
                 stage_ends_s=math.inf,
@@ -443,6 +438,21 @@ class ConstraintLayer:
             in_transition=runtime.stage is not SignalStage.GREEN,
         )
 
+    def display(self, intersection_id: IntersectionId) -> tuple[SignalStage, PhaseId | None]:
+        """What the signal must show now (D-034): `(GREEN, active)`, `(YELLOW, phase
+        being left)`, or `(ALL_RED, None)`.
+
+        Read-only. During a yellow `signal_state()` already names the *target*
+        phase, so it no longer says which links should be yellow; this does. The
+        backend turns it into SUMO's state string (`display_state`).
+        """
+        runtime = self._runtime(intersection_id)
+        if runtime.stage is SignalStage.GREEN:
+            return SignalStage.GREEN, runtime.active_phase
+        if runtime.stage is SignalStage.YELLOW:
+            return SignalStage.YELLOW, runtime.leaving_phase
+        return SignalStage.ALL_RED, None
+
     @property
     def counters(self) -> ConstraintCounters:
         """Per-outcome counters, for the run manifest."""
@@ -563,6 +573,7 @@ class ConstraintLayer:
         """
         runtime.stage = SignalStage.YELLOW
         runtime.stage_ends_s = now_s + runtime.intersection.timing.yellow_s
+        runtime.leaving_phase = runtime.active_phase
         runtime.active_phase = target
         runtime.phase_started_s = now_s
 
