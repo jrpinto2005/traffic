@@ -16,20 +16,20 @@ Update it in the same commit that merges a ticket.
 | T1.2 domain types | ✅ merged 2026-08-18 |
 | T1.3 network generator | ✅ merged 2026-10-07 — see the completion record, including two findings about the M0 reference scenario |
 | T1.4 backend adapter | ✅ merged 2026-10-07 — audited; one defect fixed; four gaps handed to T1.3, T1.8, T1.9 (see the ticket's completion record) |
-| T1.5 demand | ⬜ **ready** |
+| T1.5 demand | 🚧 issued 2026-10-07, amended contract (`D-037`) |
 | T1.6 snapshots | ⬜ **ready** |
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
 | T1.8 metrics | 🚧 issued 2026-10-07, amended contract (`D-035`, `D-006`, `D-008`) |
 | T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |
-| T1.10 controllers | ⬜ blocked on T1.5 (Webster's saturation flow) and T1.15 (`D-036`) |
+| T1.10 controllers | ⬜ blocked on T1.5 (Webster's saturation flow, `D-037`) |
 | T1.11 runner | ⬜ blocked on T1.8 |
 | T1.12 analysis | ⬜ blocked on T1.11 |
 | T1.13 profiling | ⬜ **ready** — T1.4's completion record has the baseline numbers |
 | T1.14 signal display | ✅ merged 2026-10-07 — see the completion record |
-| T1.15 detection zone | 🚧 issued 2026-10-07 — added from T1.10's review (`D-036`) |
+| T1.15 detection zone | ✅ merged 2026-10-07 |
 
-Ready now: T1.5, T1.6, T1.13. In flight: T1.8, T1.15. Critical path to the headline figure:
-T1.5 → T1.10 → T1.11 → T1.12; T1.5 is next to issue.
+Ready now: T1.6, T1.13. In flight: T1.5, T1.8. Critical path to the headline figure:
+T1.5 → T1.10 → T1.11 → T1.12.
 **Open risk:** the full suite hung once under TraCI for 17 minutes without reproducing.
 
 ## A correction to the roadmap's ticket list
