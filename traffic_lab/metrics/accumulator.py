@@ -26,7 +26,7 @@ trips with no overlap and no gap).
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from operator import attrgetter
 
 import numpy as np
@@ -95,10 +95,9 @@ class MetricResult:
         }
         groups = {AGGREGATE: self.aggregate} | {str(t): m for t, m in self.by_type.items()}
         for name, metrics in groups.items():
-            for field in TripMetrics.__slots__:
-                if field == "approach_delay_s":
-                    continue
-                row[f"{name}.{field}"] = getattr(metrics, field)
+            for field in fields(TripMetrics):
+                if field.name != "approach_delay_s":
+                    row[f"{name}.{field.name}"] = getattr(metrics, field.name)
             for edge, value in sorted(metrics.approach_delay_s.items()):
                 row[f"{name}.approach_delay_s.edge_{int(edge)}"] = value
         for lane, (mean, peak) in enumerate(
