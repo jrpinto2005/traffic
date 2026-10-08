@@ -1,7 +1,7 @@
 # Decision Register
 
 **Status:** Living document. Updated before the code that assumes a decision, never after.
-**Version:** 1.10 — see §6 for the change log
+**Version:** 1.11 — see §6 for the change log
 **Governed by:** `02_PROJECT_CHARTER.md`
 
 ---
@@ -1737,12 +1737,26 @@ every controller compared against it.
 **Revisit trigger.** A SUMO upgrade, a new `vType`, or M4's motorcycles (whose saturation flow
 is itself a research question).
 
+**Correction, 2026-10-08 — the architect's measurement was of the wrong quantity.** The numbers
+above came from holding one movement green with an oversupplied source. T1.5's builder showed
+that measures **insertion capacity at the boundary**, not saturation flow: only 0.3–0.7 % of the
+counted through vehicles ever halted, because the backlog sat in SUMO's insertion buffer, not at
+the stop line. A standing queue discharging after red ran at headways of 1.93–1.97 s from the
+fifth vehicle on — about **1830–1866 veh/h/lane through**; turns were similar under both methods
+(left ≈ 1666, right ≈ 1390), since the junction limits them either way. So the HCM's 1900
+overstates SUMO's **through** saturation flow by only ~2–4 %, not 13–16 %; it still overstates
+left (~8 %) and right (~14 %). **The decision stands** — calibrate in SUMO, because the turn
+error alone would mistune Webster — and the procedure is now standing-queue discharge (red
+pre-load, then green, headways from the fifth queued vehicle, induction loop at the stop line,
+five seeds). The stored values are T1.5's, not the figures in the problem statement above.
+
 ---
 
 ## 6. Change log
 
 | Version | Change |
 | --- | --- |
+| 1.11 | **`D-037` corrected, 2026-10-08.** The architect's calibration procedure measured boundary insertion capacity (1652 through), not stop-line saturation flow (≈ 1830–1866 through, standing-queue discharge), found by T1.5's builder. The decision to calibrate in SUMO stands — the HCM still overstates turns by 8–14 % — and the procedure is now standing-queue discharge. |
 | 1.10 | **T1.8 audit, 2026-10-07.** `D-008`'s insertion-loss numerator refined, ratified by the owner: vehicles scheduled ≥ 30 s before the window closes and still not inserted, from tripinfo, instead of the pending snapshot at the closing instant, which invalidated healthy short windows on synchronised releases. |
 | 1.9 | **Pre-issue review of T1.5, 2026-10-07.** `D-037`, ratified by the owner: saturation flow is calibrated in SUMO (measured 1652 / 1624 / 1392 veh/h/lane through / left / right), because the HCM's 1900 overstates SUMO's capacity by 13–16 % and would mistune Webster. |
 | 1.8 | **Pre-issue review of T1.10, 2026-10-07.** `D-036`, ratified by the owner: `D-013`'s gap-based actuated controller had no gap information in `EstimatedState`, so detections gain `distance_to_stop_m` and lane estimates a stop-line `zone_count` (zone length 2.0 s at the speed limit, matching SUMO's default detector placement). Webster found to depend on T1.5's saturation flow; T1.10 sequenced after T1.5. |
