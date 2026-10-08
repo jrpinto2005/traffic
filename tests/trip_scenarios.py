@@ -120,19 +120,23 @@ def mixed_type_flows(built: Built, path: Path, end_s: float, *, period_s: float)
     one type exist alongside sink arrivals of both.
     """
     lines = ["<routes>", VTYPES.rstrip("\n")]
+    cars, motos = [], []
     for k, movement in enumerate(built.movements):
         edges = (
             f'from="{built.ids.edges[movement.from_edge]}" to="{built.ids.edges[movement.to_edge]}"'
         )
         attrition = f' arrivalPos="{MID_LINK_ARRIVAL_POS_M}"' if k % 3 == 0 else ""
-        lines.append(
+        cars.append(
             f'    <flow id="c{k}" type="{CAR_TYPE}" {edges} begin="0" end="{end_s}" '
             f'period="{2 * period_s}" departLane="best" departSpeed="max"/>'
         )
-        lines.append(
+        motos.append(
             f'    <flow id="m{k}" type="{MOTO_TYPE}" {edges} begin="{period_s}" end="{end_s}" '
             f'period="{2 * period_s}" departLane="best" departSpeed="max"{attrition}/>'
         )
+    # Every car flow before any motorcycle flow: SUMO silently drops an entry
+    # that begins earlier than the one before it.
+    lines += cars + motos
     lines.append("</routes>")
     path.write_text("\n".join(lines) + "\n")
     return path

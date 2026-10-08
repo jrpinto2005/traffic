@@ -90,7 +90,11 @@ def estimate_warmup(trips: Sequence[TripRecord]) -> WarmupEstimate:
     The whole run is used, not the measurement window: this is how the window's
     start is chosen.
     """
-    columns = TripColumns.from_trips(trips)
+    return warmup_from_columns(TripColumns.from_trips(trips))
+
+
+def warmup_from_columns(columns: TripColumns) -> WarmupEstimate:
+    """`estimate_warmup` on trips already in columns."""
     finished = columns.finished
     arrival_s = columns.arrival_s[finished]
     delay_s = columns.delay_s[finished]
