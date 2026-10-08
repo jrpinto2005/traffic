@@ -62,7 +62,9 @@ class Run:
 
 
 def _run(built: Built, spec: DemandSpec, tmp: Path) -> Run:
-    routes_file = build_routes(built.net, built.network, built.ids, spec, SEED, tmp / "demand")
+    routes_file = build_routes(
+        built.net, built.network, built.ids, spec, SEED, tmp / "demand", end_s=CUTOFF_S
+    )
     tripinfo = tmp / "tripinfo.xml"
     run_sumo(built.net, routes_file, tripinfo, CUTOFF_S + DRAIN_S)
     routes = read_routes(routes_file)

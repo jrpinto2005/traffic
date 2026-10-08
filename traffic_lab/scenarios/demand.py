@@ -85,11 +85,6 @@ TURN_RATIO_TOLERANCE = 1e-6
 #: |sum of a source's type shares - 1| at most this.
 TYPE_MIX_TOLERANCE = 1e-6
 
-#: Every flow runs from 0 to this, seconds: SUMO's own default flow duration (24 h),
-#: written explicitly because SUMO warns when a flow has no end. `DemandSpec`
-#: carries no horizon, so the files cover any run shorter than a day.
-DEMAND_END_S = 86400.0
-
 #: Files `build_routes()` writes to `out`.
 ROUTES_FILE = "demand.rou.xml"
 FLOWS_FILE = "demand.flows.xml"
@@ -289,24 +284,34 @@ def _mix(shares: dict[TurnDirection, float] | dict[VehicleType, float]) -> str:
 
 
 def build_routes(
-    net_file: Path, network: Network, ids: SumoIds, spec: DemandSpec, seed: int, out: Path
+    net_file: Path,
+    network: Network,
+    ids: SumoIds,
+    spec: DemandSpec,
+    seed: int,
+    out: Path,
+    *,
+    end_s: float,
 ) -> Path:
     """Emit SUMO route files into the directory `out`. Returns the path passed to Backend.start().
 
-    `seed` is the `demand` stream's seed (D-017). Raises `DemandValidationError`
-    (naming the edge) before writing anything for a spec violating SS8
-    invariants 15-16 or otherwise unbuildable.
+    `seed` is the `demand` stream's seed (D-017). `end_s` is the run horizon
+    (warm-up + measurement + cool-down, seconds): every flow runs from 0 to
+    `end_s`. Raises `DemandValidationError` (naming the edge) before writing
+    anything for a spec violating SS8 invariants 15-16 or otherwise unbuildable.
     """
     validate_demand(network, ids, spec)
     if seed < 0:
         raise ValueError(f"seed must be >= 0, got {seed}")
+    if not (math.isfinite(end_s) and end_s > 0.0):
+        raise ValueError(f"end_s must be a positive number of seconds, got {end_s}")
     jtrrouter_seq, attrition_seq = np.random.SeedSequence(seed).spawn(2)
     jtrrouter_seed = int(jtrrouter_seq.generate_state(1)[0]) >> 1  # SUMO's --seed is int32
 
     out.mkdir(parents=True, exist_ok=True)
     flows = out / FLOWS_FILE
     turns = out / TURNS_FILE
-    flows.write_text(_flows_xml(network, ids, spec))
+    flows.write_text(_flows_xml(network, ids, spec, end_s))
     turns.write_text(_turns_xml(network, ids, spec))
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -397,7 +402,7 @@ def _arrival_pos(rng: np.random.Generator, start_m: float, length_m: float) -> s
     return f"{cm // 100}.{cm % 100:02d}"
 
 
-def _flows_xml(network: Network, ids: SumoIds, spec: DemandSpec) -> str:
+def _flows_xml(network: Network, ids: SumoIds, spec: DemandSpec, end_s: float) -> str:
     lines = ["<routes>"]
     lines += [f"    {vtype_xml(t)}" for t in VehicleType]
     for k, source in enumerate(spec.sources):
@@ -410,7 +415,7 @@ def _flows_xml(network: Network, ids: SumoIds, spec: DemandSpec) -> str:
             lines.append(
                 f'    <flow id="source{k}_{vehicle_type.value}" type="{vtype_id(vehicle_type)}" '
                 f'from={quoteattr(ids.edges[source.edge])} begin="0" '
-                f'end="{DEMAND_END_S:.0f}" period="exp({rate * share!r})"{position}'
+                f'end="{end_s!r}" period="exp({rate * share!r})"{position}'
                 f"{depart_xml()}/>"
             )
     lines.append("</routes>")

@@ -40,6 +40,9 @@ from traffic_lab.scenarios.saturation import per_lane_saturation_flow_vph
 #: directly: `derive_seeds(0)["demand"]`.
 LARGE_SEED = 3757552657
 
+#: The run horizon: 24 h, so each source schedules ~11,800 vehicles at level 0.15.
+END_S = 86400.0
+
 #: Kolmogorov's asymptotic critical value at alpha = 0.01: reject if sqrt(n) D > 1.628.
 KS_CRITICAL_001 = 1.628
 
@@ -53,7 +56,7 @@ def _build(
     positions: Mapping[str, float] | None = None,
 ) -> Path:
     spec = four_source_spec(built, 0.15, attrition=attrition, positions=positions)
-    return build_routes(built.net, built.network, built.ids, spec, seed, tmp)
+    return build_routes(built.net, built.network, built.ids, spec, seed, tmp, end_s=END_S)
 
 
 @pytest.fixture(scope="module")
@@ -197,6 +200,27 @@ def test_scheduled_headways_are_exponential_at_the_configured_rate(
     assert {r.edges[0] for r in read_routes(routes) if r.id.startswith(f"source{source}_")} == {
         approaches(four_way)[source]
     }
+
+
+def test_flows_end_at_the_run_horizon(four_way: Built, routes: Path, tmp_path: Path) -> None:
+    flows = ET.parse(routes.parent / FLOWS_FILE).getroot().findall("flow")
+    assert {f.get("begin") for f in flows} == {"0"}
+    assert {float(f.get("end", "nan")) for f in flows} == {END_S}
+    departs = [r.depart_s for r in read_routes(routes)]
+    assert END_S - 60.0 < departs[-1] < END_S
+    spec = four_source_spec(four_way, 0.15)
+    short = build_routes(
+        four_way.net, four_way.network, four_way.ids, spec, 7, tmp_path, end_s=600.0
+    )
+    departs = [r.depart_s for r in read_routes(short)]
+    assert departs and max(departs) < 600.0
+
+
+@pytest.mark.parametrize("end_s", [0.0, -1.0, float("inf"), float("nan")])
+def test_the_horizon_must_be_positive(four_way: Built, tmp_path: Path, end_s: float) -> None:
+    spec = four_source_spec(four_way, 0.15)
+    with pytest.raises(ValueError, match="end_s"):
+        build_routes(four_way.net, four_way.network, four_way.ids, spec, 7, tmp_path, end_s=end_s)
 
 
 def _ks_exponential(sample: np.ndarray, rate: float) -> float:

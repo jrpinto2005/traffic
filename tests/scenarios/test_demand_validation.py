@@ -75,7 +75,9 @@ def test_zero_attrition_is_allowed(four_way: Built) -> None:
 def test_validation_fails_before_anything_is_written(four_way: Built, tmp_path: Path) -> None:
     spec = four_source_spec(four_way, 0.1, attrition={"approach_2_out": 1.0})
     with pytest.raises(DemandValidationError):
-        build_routes(four_way.net, four_way.network, four_way.ids, spec, 1, tmp_path / "out")
+        build_routes(
+            four_way.net, four_way.network, four_way.ids, spec, 1, tmp_path / "out", end_s=3600.0
+        )
     assert not (tmp_path / "out").exists()
 
 
