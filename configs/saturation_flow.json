@@ -1,0 +1,124 @@
+{
+ "calibrations": [
+  {
+   "sumo_version": "1.27.1",
+   "vehicle_type": "car",
+   "vtype": {
+    "vClass": "passenger"
+   },
+   "vtype_hash": "585714d251654e24e73e8b9c1909e3862c7e1c9026d6497ac2eb31e56c2722f8",
+   "speed_limit_mps": 13.89,
+   "turn": "through",
+   "lanes_per_approach": 2,
+   "serving_lanes": 2,
+   "step_length_s": 1.0,
+   "window_s": [
+    600.0,
+    3600.0
+   ],
+   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "per_seed_vph_per_lane": [
+    1657.8,
+    1646.3999999999999,
+    1643.3999999999999,
+    1625.3999999999999,
+    1642.1999999999998
+   ],
+   "halted_fraction": [
+    0.002895403546869345,
+    0.0058309037900874635,
+    0.004381161007667032,
+    0.0070136581764488745,
+    0.0025575447570332483
+   ],
+   "mean_vph_per_lane": 1643.0399999999997,
+   "std_vph_per_lane": 11.63133698247973
+  },
+  {
+   "sumo_version": "1.27.1",
+   "vehicle_type": "car",
+   "vtype": {
+    "vClass": "passenger"
+   },
+   "vtype_hash": "585714d251654e24e73e8b9c1909e3862c7e1c9026d6497ac2eb31e56c2722f8",
+   "speed_limit_mps": 13.89,
+   "turn": "left",
+   "lanes_per_approach": 2,
+   "serving_lanes": 1,
+   "step_length_s": 1.0,
+   "window_s": [
+    600.0,
+    3600.0
+   ],
+   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "per_seed_vph_per_lane": [
+    1644.0,
+    1620.0,
+    1635.6,
+    1634.3999999999999,
+    1616.3999999999999
+   ],
+   "halted_fraction": [
+    0.0072992700729927005,
+    0.0044444444444444444,
+    0.003668378576669112,
+    0.003671071953010279,
+    0.005196733481811433
+   ],
+   "mean_vph_per_lane": 1630.08,
+   "std_vph_per_lane": 11.528746679496448
+  },
+  {
+   "sumo_version": "1.27.1",
+   "vehicle_type": "car",
+   "vtype": {
+    "vClass": "passenger"
+   },
+   "vtype_hash": "585714d251654e24e73e8b9c1909e3862c7e1c9026d6497ac2eb31e56c2722f8",
+   "speed_limit_mps": 13.89,
+   "turn": "right",
+   "lanes_per_approach": 2,
+   "serving_lanes": 1,
+   "step_length_s": 1.0,
+   "window_s": [
+    600.0,
+    3600.0
+   ],
+   "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "per_seed_vph_per_lane": [
+    1386.0,
+    1378.8,
+    1392.0,
+    1388.3999999999999,
+    1388.3999999999999
+   ],
+   "halted_fraction": [
+    0.009523809523809525,
+    0.011314186248912098,
+    0.01810344827586207,
+    0.012100259291270527,
+    0.01901469317199654
+   ],
+   "mean_vph_per_lane": 1386.7199999999998,
+   "std_vph_per_lane": 4.918536367660602
+  }
+ ]
+}
