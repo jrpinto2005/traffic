@@ -1,7 +1,7 @@
 # Decision Register
 
 **Status:** Living document. Updated before the code that assumes a decision, never after.
-**Version:** 1.8 — see §6 for the change log
+**Version:** 1.9 — see §6 for the change log
 **Governed by:** `02_PROJECT_CHARTER.md`
 
 ---
@@ -78,6 +78,7 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-034](#d-034) | `TrueState` signals decoded from SUMO's display | SETTLED | M1 |
 | [D-035](#d-035) | Trip-level metrics come from SUMO's tripinfo | SETTLED | M1 |
 | [D-036](#d-036) | Stop-line detection zone for gap-based actuation | SETTLED | M1 |
+| [D-037](#d-037) | Saturation flow is calibrated in SUMO | SETTLED | M1 |
 
 **M1 is fully unblocked.** Every decision it depends on is SETTLED. The three remaining open
 decisions — `D-021` (state estimation), `D-024` (objective function), `D-030` (trace format) —
@@ -1700,10 +1701,39 @@ coverage.
 
 ---
 
+<a id="d-037"></a>
+### D-037 — Saturation flow is calibrated in SUMO, not taken from the HCM
+
+**Status:** SETTLED — ratified by owner 2026-10-07 · **Source:** pre-issue review of T1.5
+
+**Problem.** `D-022` expresses demand as a fraction of saturation flow, and `D-013`'s Webster
+computes cycles and splits from it, but nothing fixed the value. Measured on a T1.3-generated
+intersection under continuous green with a saturated queue (default passenger `vType`,
+13.89 m/s): through 1652, protected left 1624, right 1392 veh/h per lane. The HCM's base
+1900 pc/h/ln with standard turn factors (≈ 1805 left, ≈ 1615 right) overstates SUMO's capacity
+by 13–16 %, and Webster tuned to capacity that does not exist is the badly tuned baseline
+`D-013` exists to prevent.
+
+**Decision.** Saturation flow per lane is **measured in SUMO** for each (vehicle type, speed
+limit, turn direction), by a pinned calibration procedure: one movement alone, held green, a
+saturated queue, discharge counted over a steady window, several seeds. Results are versioned
+with the SUMO version and the `vType` parameters, stored in the repository, and recorded in
+every run manifest. Demand fractions (`D-022`) and Webster (`D-013`) read the same values. An
+approach's saturation flow is its lane count times the per-lane through value.
+
+**Rejected.** HCM base values: citable, but they mistune Webster in a direction that flatters
+every controller compared against it.
+
+**Revisit trigger.** A SUMO upgrade, a new `vType`, or M4's motorcycles (whose saturation flow
+is itself a research question).
+
+---
+
 ## 6. Change log
 
 | Version | Change |
 | --- | --- |
+| 1.9 | **Pre-issue review of T1.5, 2026-10-07.** `D-037`, ratified by the owner: saturation flow is calibrated in SUMO (measured 1652 / 1624 / 1392 veh/h/lane through / left / right), because the HCM's 1900 overstates SUMO's capacity by 13–16 % and would mistune Webster. |
 | 1.8 | **Pre-issue review of T1.10, 2026-10-07.** `D-036`, ratified by the owner: `D-013`'s gap-based actuated controller had no gap information in `EstimatedState`, so detections gain `distance_to_stop_m` and lane estimates a stop-line `zone_count` (zone length 2.0 s at the speed limit, matching SUMO's default detector placement). Webster found to depend on T1.5's saturation flow; T1.10 sequenced after T1.5. |
 | 1.7 | **Pre-issue review of T1.8, 2026-10-07.** Three owner decisions. `D-035`: trip-level metrics come from SUMO's tripinfo, because `TrueState` cannot see a trip's final values (time loss short by up to 0.12 s, travel time by exactly 1 s, measured). `D-006` amended: primary delay is `timeLoss + departDelay`, because time spent waiting to enter appears in no metric (274 s against 64 s of time loss under oversaturation) and would reward spillback. `D-008`: insertion-loss threshold set at 1 % of vehicles due in the measurement window. |
 | 1.6 | **Pre-issue review of T1.3 and T1.9, 2026-10-07.** `D-023`'s seeding rule **corrected** by the architect on measurement: every SUMO foe pair has a yielding side, so `response` encodes priority, not permissibility; foes now seed `CONFLICTING` and `PERMITTED` comes only from a scenario override. Two decisions ratified by the owner. `D-033`: T1.9 as specified could not produce an exact oracle — detections had no lane, observations no signals, and Δt sampling loses `D-025`'s 1 s halting condition — so detections gain `lane` and `stationary_s`, and the estimator receives signal state from the constraint layer. `D-034`: once a controller drives a light, SUMO reports phase index 0 for good (`online` program), so `TrueState` signals are decoded from the displayed state string through a link order T1.3 produces; truth shows what the lights display, the constraint layer what was committed. |
