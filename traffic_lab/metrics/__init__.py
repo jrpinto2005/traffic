@@ -14,6 +14,7 @@ from traffic_lab.metrics.phases import MeasurementWindow, RunPhase
 from traffic_lab.metrics.trips import TripMetrics
 from traffic_lab.metrics.validity import (
     INSERTION_LOSS_THRESHOLD,
+    INSERTION_WAIT_THRESHOLD_S,
     InvalidityCause,
     TripAccountingError,
     Validity,
@@ -22,6 +23,7 @@ from traffic_lab.metrics.validity import (
 __all__ = [
     "AGGREGATE",
     "INSERTION_LOSS_THRESHOLD",
+    "INSERTION_WAIT_THRESHOLD_S",
     "InvalidityCause",
     "MeasurementWindow",
     "MetricAccumulator",

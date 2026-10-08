@@ -274,8 +274,45 @@ def test_an_overloaded_run_is_invalid_by_insertion_loss(scenario: Scenario, tmp_
     assert result.validity.due_in_window == sum(
         1 for k in range(0, 3600 // 7 + 1) if 300 <= 7 * k < 600
     ) * len(scenario.built.movements)
-    (closing,) = [s for s in overload.states if s.time_s == 600.0]
-    assert result.validity.pending_at_window_close == closing.counters.insertion_failures
+    # The numerator, recounted from the XML: flow `mK.n` is due at 7 n; waiting at
+    # least 30 s at the close means due at or before 570, and still outside means
+    # never inserted or inserted at or after 600.
+    not_inserted = sum(
+        1
+        for e in _xml(tripinfo)
+        if 7 * int(e["id"].split(".")[1]) <= 570
+        and (float(e["depart"]) < 0 or float(e["depart"]) >= 600)
+    )
+    assert result.validity.not_inserted_at_window_close == not_inserted > 0
+
+
+def test_a_burst_of_pending_vehicles_at_the_close_does_not_invalidate_the_shared_fixture(
+    scenario: Scenario, tmp_path: Path
+) -> None:
+    """D-008 as refined 2026-10-07, prompted by the case this reproduces.
+
+    The shared demand releases all twelve flows in the same second, so for one
+    step SUMO's pending list holds four vehicles that are a second late. A
+    window closing on that step had 4 of ~190 due vehicles "not inserted" under
+    the pending-snapshot rule -- 2 %, invalid -- although demand is served
+    (65 % of capacity). Counted as vehicles that have waited 30 s, it is 0.
+    """
+    tripinfo = tmp_path / "tripinfo.xml"
+    shared = run(
+        scenario.built,
+        scenario.routes,
+        tripinfo,
+        1300,
+        make_config(transport="libsumo", tripinfo_path=tripinfo),
+    )
+    burst = next(s for s in shared.states if s.time_s >= 900 and s.counters.insertion_failures == 4)
+    window = MeasurementWindow(start_s=burst.time_s - 600.0, end_s=burst.time_s)
+    result = _finalize(shared, scenario, window)
+
+    pending_rule = burst.counters.insertion_failures / result.validity.due_in_window
+    assert pending_rule > 0.01  # what the snapshot rule would have said
+    assert result.validity.not_inserted_at_window_close == 0
+    assert result.validity.valid, result.validity
 
 
 def test_a_trickle_run_is_valid(scenario: Scenario, tmp_path: Path) -> None:

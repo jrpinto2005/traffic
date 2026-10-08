@@ -6,8 +6,8 @@ The two sources of D-035 meet here:
   window it appends one row of per-lane queue counts -- D-025's queue, already
   computed by the backend as `LaneState.queue_count` and not recomputed here
   (`07_EXPERIMENT_METHODOLOGY.md` SS2.5). At the instant the window closes it
-  takes one snapshot: the vehicles still in the network, their time loss so
-  far, and SUMO's pending-insertion count. Nothing else happens in the step
+  takes one snapshot: the vehicles still in the network and their time loss so
+  far. Nothing else happens in the step
   loop: no per-vehicle work, no metric arithmetic, no I/O (D-031).
 * **At run end**, `finalize(trips)` takes the `TripRecord`s parsed from tripinfo
   and computes everything with NumPy: the trip and network metrics, in
@@ -57,7 +57,6 @@ RowValue = float | int | bool | str | None
 class _WindowClose:
     """What `TrueState` says at the instant the window closes."""
 
-    pending: int  # vehicles; SUMO's pending-insertion list
     in_network: dict[VehicleType, InNetwork]
 
 
@@ -86,7 +85,7 @@ class MetricResult:
             "teleports": validity.teleports,
             "gridlock_detected": validity.gridlock_detected,
             "snapshot_mismatch": validity.snapshot_mismatch,
-            "pending_at_window_close": validity.pending_at_window_close,
+            "not_inserted_at_window_close": validity.not_inserted_at_window_close,
             "due_in_window": validity.due_in_window,
             "insertion_loss": validity.insertion_loss,
             "mid_link_arrivals_tripinfo": self.mid_link_arrivals_tripinfo,
@@ -161,12 +160,10 @@ class MetricAccumulator:
         run_end = last.counters
         check_trip_accounting(run_end, int(columns.inserted.sum()))
 
-        scheduled = columns.scheduled_depart_s
-        due = int(((scheduled >= self._window.start_s) & (scheduled < self._window.end_s)).sum())
         validity = assess_validity(
             run_end=run_end,
-            pending_at_window_close=close.pending,
-            due_in_window=due,
+            trips=columns,
+            window=self._window,
             snapshot_mismatch=snapshot_mismatch,
         )
 
@@ -219,6 +216,5 @@ def _snapshot(state: TrueState) -> _WindowClose:
         counts[vehicle.type] += 1
         losses[vehicle.type] += vehicle.time_loss_s
     return _WindowClose(
-        pending=state.counters.insertion_failures,
         in_network={t: InNetwork(count=counts[t], time_loss_s=losses[t]) for t in VEHICLE_TYPES},
     )
