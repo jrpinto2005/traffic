@@ -19,15 +19,15 @@ Update it in the same commit that merges a ticket.
 | T1.5 demand | ⬜ **ready** |
 | T1.6 snapshots | ⬜ **ready** |
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
-| T1.8 metrics | ⬜ **ready** |
+| T1.8 metrics | ⬜ contract amended 2026-10-07 (`D-035`, `D-006`, `D-008`); issued once T1.14 merges, on its test fixtures |
 | T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |
 | T1.10 controllers | ⬜ blocked on T1.14 |
 | T1.11 runner | ⬜ blocked on T1.8 |
 | T1.12 analysis | ⬜ blocked on T1.11 |
 | T1.13 profiling | ⬜ **ready** — T1.4's completion record has the baseline numbers |
-| T1.14 signal display | ⬜ **ready** — added 2026-10-07 from T1.4's audit (`D-034`) |
+| T1.14 signal display | 🚧 issued 2026-10-07 — first retires the M0 reference fixture |
 
-Ready now: T1.5, T1.6, T1.8, T1.13, T1.14. T1.14 is the critical path — T1.10 waits on it.
+Ready now: T1.5, T1.6, T1.13. T1.14 is in flight and on the critical path; T1.8 follows it.
 **Open risks:** the hand-built M0 reference scenario is geometrically unsound (see T1.3's
 record) yet is still the backend's test fixture; and the suite hung once under TraCI for 17
 minutes without reproducing.
