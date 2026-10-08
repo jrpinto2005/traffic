@@ -1,7 +1,7 @@
 # Decision Register
 
 **Status:** Living document. Updated before the code that assumes a decision, never after.
-**Version:** 1.6 — see §6 for the change log
+**Version:** 1.7 — see §6 for the change log
 **Governed by:** `02_PROJECT_CHARTER.md`
 
 ---
@@ -47,7 +47,7 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-003](#d-003) | Domain model is a projection, not a re-implementation | SETTLED | M1 |
 | [D-004](#d-004) | Technology stack | SETTLED | M1 |
 | [D-005](#d-005) | Computer vision out of core; extension point reserved | SETTLED | M3 |
-| [D-006](#d-006) | Primary delay metric = time loss | SETTLED | M1 |
+| [D-006](#d-006) | Primary delay = time loss + insertion delay (amended 2026-10-07) | SETTLED | M1 |
 | [D-007](#d-007) | Queue definition — see D-025 | SUPERSEDED | — |
 | [D-008](#d-008) | Teleporting disabled; gridlock and insertion loss detected | SETTLED | M1 |
 | [D-009](#d-009) | Visualization is record-then-replay | SETTLED | M2 |
@@ -76,6 +76,7 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-032](#d-032) | Initial-state snapshots | SETTLED | M1 |
 | [D-033](#d-033) | Detections carry lane and stationary time; estimator receives signals | SETTLED | M1 |
 | [D-034](#d-034) | `TrueState` signals decoded from SUMO's display | SETTLED | M1 |
+| [D-035](#d-035) | Trip-level metrics come from SUMO's tripinfo | SETTLED | M1 |
 
 **M1 is fully unblocked.** Every decision it depends on is SETTLED. The three remaining open
 decisions — `D-021` (state estimation), `D-024` (objective function), `D-030` (trace format) —
@@ -284,6 +285,16 @@ formality.
 **Revisit trigger.** Comparison against a published result that reports control delay
 specifically.
 
+**Amended 2026-10-07, ratified by owner — the primary delay is `timeLoss + departDelay`.**
+SUMO's `timeLoss` starts at insertion, so the time a vehicle waits to enter the network is in
+no metric at all. Measured on the M0 reference net at 1500 veh/h per approach: mean
+`departDelay` 274.1 s against mean `timeLoss` 64.3 s over 1327 completed trips. A controller
+whose queues spill back to the boundary would therefore look *better*, and the ranking of two
+controllers would depend on the approach length — an arbitrary modelling boundary (200 m).
+Both terms come from SUMO's tripinfo (`D-035`), so the metric is still native and exact. The
+two components are always reported separately as well, so the amendment never hides which
+one moved. Unsaturated runs are unaffected in practice (`departDelay` ≈ 0).
+
 ---
 
 <a id="d-007"></a>
@@ -325,6 +336,14 @@ from M1, but they do not carry equal weight at equal times:
 
 The insertion-loss threshold therefore needs a justified value rather than a placeholder, and
 T1.8 should treat it as the primary gate.
+
+**Threshold set 2026-10-07, ratified by owner: 1 %.** Insertion loss is the number of vehicles
+due during the measurement window that are still not inserted when it closes (SUMO's pending
+list), divided by the number due in the window; above 1 % the run is invalid. Justification:
+an order of magnitude below the 22 % T0.4 measured, and below the ≈ 3 % run-to-run spread of
+realised Poisson demand at M1 volumes, so a run under the threshold cannot differ from its
+configured demand by more than demand noise already does. Not configurable (non-goal 3 of
+T1.8): a threshold that can be relaxed per experiment is not a threshold.
 
 **Rationale.** SUMO teleports stuck vehicles by default after 300s. Under congestion — the
 regime where adaptive control is supposed to prove itself — this silently deletes the
@@ -1625,10 +1644,38 @@ display alone cannot tell apart.
 
 ---
 
+<a id="d-035"></a>
+### D-035 — Trip-level metrics come from SUMO's tripinfo
+
+**Status:** SETTLED — ratified by owner 2026-10-07 · **Source:** pre-issue review of T1.8
+
+**Problem.** `TrueState` carries only vehicles still in the network, and a trip's final values
+are fixed at arrival — the step it disappears. Measured on 531 completed trips: the last
+`timeLoss` visible in `TrueState` falls short of SUMO's final value by up to 0.117 s (median
+0.048 s, exact in none), and travel time reconstructed from first and last sighting is short by
+exactly 1.000 s in every case. T1.8's criterion "matches SUMO's `timeLoss`" was unattainable.
+
+**Decision.** At run end the backend parses SUMO's tripinfo — already written with unfinished
+and undeparted vehicles for `D-022` — into canonical per-trip records. Trip-level metrics
+(time loss, insertion delay, travel time, waiting time, stops, approach delay, throughput,
+completion) are computed from them, filtered to the measurement window by departure and
+arrival time. Step-level metrics (queue, max queue, total time loss of vehicles still
+in-network) stay on `TrueState`. Tripinfo's `arrivalPos` also makes `D-022`'s sink versus
+mid-link split exact at run end, which the step projection can only bound kinematically.
+
+**Rejected.** Reconstructing from `TrueState`: no new parts, but a known bias in the primary
+metric, and the reconstruction would itself be a second implementation of SUMO's definition.
+
+**Revisit trigger.** A metric that needs trip data during the run rather than at its end (an
+online controller objective, M6–M7).
+
+---
+
 ## 6. Change log
 
 | Version | Change |
 | --- | --- |
+| 1.7 | **Pre-issue review of T1.8, 2026-10-07.** Three owner decisions. `D-035`: trip-level metrics come from SUMO's tripinfo, because `TrueState` cannot see a trip's final values (time loss short by up to 0.12 s, travel time by exactly 1 s, measured). `D-006` amended: primary delay is `timeLoss + departDelay`, because time spent waiting to enter appears in no metric (274 s against 64 s of time loss under oversaturation) and would reward spillback. `D-008`: insertion-loss threshold set at 1 % of vehicles due in the measurement window. |
 | 1.6 | **Pre-issue review of T1.3 and T1.9, 2026-10-07.** `D-023`'s seeding rule **corrected** by the architect on measurement: every SUMO foe pair has a yielding side, so `response` encodes priority, not permissibility; foes now seed `CONFLICTING` and `PERMITTED` comes only from a scenario override. Two decisions ratified by the owner. `D-033`: T1.9 as specified could not produce an exact oracle — detections had no lane, observations no signals, and Δt sampling loses `D-025`'s 1 s halting condition — so detections gain `lane` and `stationary_s`, and the estimator receives signal state from the constraint layer. `D-034`: once a controller drives a light, SUMO reports phase index 0 for good (`online` program), so `TrueState` signals are decoded from the displayed state string through a link order T1.3 produces; truth shows what the lights display, the constraint layer what was committed. |
 | 1.5 | **M0 audit and corrections, 2026-08-18.** An audit of the first-pass M0 write-ups found four defects, each re-verified before correcting. `D-031`'s subscription mandate **amended**: measured ~10× faster on TraCI but ~1.7× *slower* on LibSUMO, the transport intended for all heavy workloads; the invariant (one batched projection per step, no per-object access exposed) is kept, the mechanism becomes transport-specific. T0.3 had argued this away in its own write-up instead of escalating. `D-008` **priority reordered**: insertion loss, not teleporting, is the M1 threat — a demand sweep produced zero teleports while 22% of demand failed to insert. `D-025`: lane-area jam length is a **different measure** from the halting counter (disagreed on 230/600 steps), so the metres metric is reopened. `D-023`: the conflict matrix is seeded from static `<request>` `foes`/`response` plus the `G`/`g` case, **not** from runtime `getLinks()` state as first documented. |
 | 1.4 | **M0 findings applied, 2026-08-18.** `D-004` amended twice from T0.0: SUMO installs as the `eclipse-sumo` PyPI distribution pinned in `uv.lock` rather than a system package, and **pyarrow is excluded** after a reproduced ABI collision with libsumo that would have broken T1.11's runner on every run. From T0.1: `D-013`'s "11–13%" claim qualified (it is a synthetic-grid, best-of-100, unpaired-seed figure, and the same paper concludes MPLight diverges on realistic networks); `D-025` records the 1 s halting condition as a deliberate divergence from all surveyed prior art, with the consequence that RESCO's Max-Pressure and ours are not the same algorithm; `D-020` gains a legal-action mask adopted from PyTSC. |
