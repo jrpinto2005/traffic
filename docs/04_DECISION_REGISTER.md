@@ -1,7 +1,7 @@
 # Decision Register
 
 **Status:** Living document. Updated before the code that assumes a decision, never after.
-**Version:** 1.9 — see §6 for the change log
+**Version:** 1.10 — see §6 for the change log
 **Governed by:** `02_PROJECT_CHARTER.md`
 
 ---
@@ -346,6 +346,16 @@ an order of magnitude below the 22 % T0.4 measured, and below the ≈ 3 % run-to
 realised Poisson demand at M1 volumes, so a run under the threshold cannot differ from its
 configured demand by more than demand noise already does. Not configurable (non-goal 3 of
 T1.8): a threshold that can be relaxed per experiment is not a threshold.
+
+**Numerator refined 2026-10-07, ratified by owner — count only long waits.** T1.8's builder
+showed the pending-list snapshot is fragile: when several flows release in the same second a
+few vehicles wait one step to insert, and with ~190 vehicles due in a 600 s window two of them
+at the closing instant already exceed 1 %. Insertion loss is now the number of vehicles
+**scheduled at least 30 s before the window closes and still not inserted when it closes**,
+divided by the number scheduled in the window, computed exactly from tripinfo's scheduled and
+actual departures. A vehicle that has waited half a minute to enter means a queue reached the
+boundary; one that waited a step does not. Delayed-then-inserted vehicles are already charged
+through `departDelay` in the primary delay (`D-006`).
 
 **Rationale.** SUMO teleports stuck vehicles by default after 300s. Under congestion — the
 regime where adaptive control is supposed to prove itself — this silently deletes the
@@ -1733,6 +1743,7 @@ is itself a research question).
 
 | Version | Change |
 | --- | --- |
+| 1.10 | **T1.8 audit, 2026-10-07.** `D-008`'s insertion-loss numerator refined, ratified by the owner: vehicles scheduled ≥ 30 s before the window closes and still not inserted, from tripinfo, instead of the pending snapshot at the closing instant, which invalidated healthy short windows on synchronised releases. |
 | 1.9 | **Pre-issue review of T1.5, 2026-10-07.** `D-037`, ratified by the owner: saturation flow is calibrated in SUMO (measured 1652 / 1624 / 1392 veh/h/lane through / left / right), because the HCM's 1900 overstates SUMO's capacity by 13–16 % and would mistune Webster. |
 | 1.8 | **Pre-issue review of T1.10, 2026-10-07.** `D-036`, ratified by the owner: `D-013`'s gap-based actuated controller had no gap information in `EstimatedState`, so detections gain `distance_to_stop_m` and lane estimates a stop-line `zone_count` (zone length 2.0 s at the speed limit, matching SUMO's default detector placement). Webster found to depend on T1.5's saturation flow; T1.10 sequenced after T1.5. |
 | 1.7 | **Pre-issue review of T1.8, 2026-10-07.** Three owner decisions. `D-035`: trip-level metrics come from SUMO's tripinfo, because `TrueState` cannot see a trip's final values (time loss short by up to 0.12 s, travel time by exactly 1 s, measured). `D-006` amended: primary delay is `timeLoss + departDelay`, because time spent waiting to enter appears in no metric (274 s against 64 s of time loss under oversaturation) and would reward spillback. `D-008`: insertion-loss threshold set at 1 % of vehicles due in the measurement window. |

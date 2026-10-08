@@ -50,7 +50,7 @@ and an HCM-style control delay approximation at intersection level.
 | **Queue** *(primary)* | vehicles | Count of vehicles halting below 0.1 m/s continuously for ≥ 1 s. `D-025`. |
 | **Queue length** | m | Distance from the stop line to the last queued vehicle. Secondary; reported from M4 where the car/motorcycle divergence becomes interesting. |
 | **Max queue** | vehicles | Maximum of the above over the measurement window. |
-| **Approach delay** | s | Mean time loss of vehicles whose route used that approach. |
+| **Approach delay** | s | Mean primary delay (time loss plus insertion delay, `D-006`) of vehicles whose route used that approach; components reported. Insertion delay is the approach's own spillback. |
 | **Signal utilisation** | fraction | Green time during which the served movements discharged at ≥ 80% of saturation flow. Diagnostic; distinguishes "green given" from "green used". |
 
 ### 2.3 Network level
@@ -71,7 +71,8 @@ state (T1.14) and saturation flow (T1.5); it is not part of T1.8.
 ### 2.4 Separability by vehicle type
 
 Every vehicle-level and network-level metric is computed **per vehicle type as well as in
-aggregate**, from M1, before motorcycles exist. Retrofitting separability after the
+aggregate**, from M1, before motorcycles exist. Lane-level queue metrics are aggregate at M1;
+a per-type queue is an M4 question (confirmed 2026-10-07, T1.8). Retrofitting separability after the
 aggregation code is written is far more annoying than building it in.
 
 This is not bookkeeping. At M4 the question *"does this controller improve the aggregate by
@@ -158,7 +159,7 @@ Per `D-008`, a run is **invalid** — not merely noisy — if any of the followi
 | Condition | Why it invalidates |
 | --- | --- |
 | Any teleport | Teleporting deletes the congestion being measured, and deletes more of it for worse controllers |
-| Insertion loss above 1 % (`D-008`) | The applied demand no longer matches the configured demand, so the experiment measures something other than what it claims |
+| Insertion loss above 1 % (`D-008`: vehicles scheduled ≥ 30 s before the window closes and still not inserted, over vehicles scheduled in the window) | The applied demand no longer matches the configured demand, so the experiment measures something other than what it claims |
 | Gridlock detected | Metrics past that point are meaningless |
 | Snapshot/network hash mismatch | The run did not start from the state it claims |
 
