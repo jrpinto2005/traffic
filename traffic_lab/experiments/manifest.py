@@ -6,6 +6,8 @@ including counters whose honest value is currently zero (D-008, D-022).
 
 from __future__ import annotations
 
+import resource
+import sys
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -84,3 +86,15 @@ def build_manifest(config: RunConfig, *, wall_clock_s: float, peak_memory_mb: fl
         wall_clock_s=wall_clock_s,
         peak_memory_mb=peak_memory_mb,
     )
+
+
+def measure_peak_memory_mb() -> float:
+    """Peak resident set size of this process so far, in MB.
+
+    `ru_maxrss` units differ by platform: bytes on macOS/BSD, kibibytes on Linux.
+    `sys.platform` is the only portable way to know which.
+    """
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if sys.platform == "darwin":
+        return peak / 1e6
+    return peak / 1e3
