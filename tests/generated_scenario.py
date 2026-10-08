@@ -46,8 +46,19 @@ FOUR_WAY = IntersectionSpec(
     timing=TIMING,
 )
 
-#: Seconds between vehicles on each movement's flow.
-DEMAND_PERIOD_S = 7.0
+#: Seconds between vehicles on each movement's flow in the shared fixture:
+#: 94.7 veh/h per movement, 1137 veh/h in all -- about 65 % of the static
+#: program's capacity, so runs on it are valid under D-008's insertion-loss
+#: threshold. Capacity measured, not assumed: with every movement oversupplied
+#: (`OVERLOAD_PERIOD_S`) the static program discharged 144-150 veh/h per movement,
+#: 1762 veh/h in all, over [600, 3600) s (seed 42, SUMO 1.27.1). At this period
+#: the pending-insertion count is 0 on 97 % of steps after a 300 s warm-up and
+#: never more than 4 for one step -- the instants all twelve flows emit at once.
+DEMAND_PERIOD_S = 38.0
+
+#: The period `tests/scenarios/test_runtime.py` first used: 6171 veh/h, about 3.5x
+#: capacity. For tests that are about load, never for the shared fixture.
+OVERLOAD_PERIOD_S = 7.0
 
 
 @dataclass(frozen=True)
@@ -101,9 +112,7 @@ def build_intersection(spec: IntersectionSpec, out_dir: Path) -> Built:
     return Built(net, network, load_ids(out_dir / f"{NET_STEM}{IDS_SUFFIX}"), spec)
 
 
-def one_flow_per_movement(
-    built: Built, path: Path, end_s: float, period_s: float = DEMAND_PERIOD_S
-) -> Path:
+def one_flow_per_movement(built: Built, path: Path, end_s: float, *, period_s: float) -> Path:
     """One flow per movement, so every movement has vehicles on it."""
     lines = ["<routes>"]
     for movement in built.movements:
@@ -115,3 +124,13 @@ def one_flow_per_movement(
     lines.append("</routes>")
     path.write_text("\n".join(lines) + "\n")
     return path
+
+
+def free_flow_population(built: Built, period_s: float) -> float:
+    """Vehicles the network holds when nothing waits (Little's law): the arrival
+    rate of `one_flow_per_movement` times the free-flow time across one approach
+    in and one out. A liveness bound derived from the scenario: a run below it
+    never filled the network even to its uncongested level."""
+    arrival_rate_per_s = len(built.movements) / period_s
+    crossing_s = 2 * built.spec.approach_length_m / built.spec.speed_limit_mps
+    return arrival_rate_per_s * crossing_s

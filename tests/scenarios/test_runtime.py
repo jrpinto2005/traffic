@@ -15,7 +15,7 @@ import pytest
 import sumolib
 import traci
 
-from tests.generated_scenario import Built, one_flow_per_movement
+from tests.generated_scenario import OVERLOAD_PERIOD_S, Built, one_flow_per_movement
 from traffic_lab.backend import BackendConfig, SumoBackend, TransportName
 from traffic_lab.domain.network import PhaseId, movements_of
 
@@ -37,7 +37,9 @@ def test_sumo_loads_and_runs_the_net_with_no_warnings(generated: Built, tmp_path
     this machine -- a warning about the process environment, not the network.
     """
     end_s = 2 * _cycle_s(generated) + 60.0
-    routes = one_flow_per_movement(generated, tmp_path / "demand.rou.xml", end_s - 60.0)
+    routes = one_flow_per_movement(
+        generated, tmp_path / "demand.rou.xml", end_s - 60.0, period_s=OVERLOAD_PERIOD_S
+    )
     result = subprocess.run(
         [
             SUMO,

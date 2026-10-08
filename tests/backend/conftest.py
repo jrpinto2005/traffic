@@ -9,9 +9,10 @@ SS1 from documentation").
 
 The scenario is a T1.3-generated intersection (T1.14 Amendment A1): the default
 four-approach spec with the protected four-phase plan, its static program, and
-one flow per movement (`tests/generated_scenario.py`). Every geometry-specific
-value a test needs -- the traffic light, the length of a display, edge IDs,
-timings -- is read from it rather than written down.
+one flow per movement at about 65 % of capacity (`tests/generated_scenario.py`).
+Every geometry-specific value a test needs -- the traffic light, the length of a
+display, edge IDs, timings -- is read from it rather than written down. Tests
+that are about overload build their own demand.
 """
 
 from __future__ import annotations
@@ -21,7 +22,14 @@ from pathlib import Path
 
 import pytest
 
-from tests.generated_scenario import FOUR_WAY, Built, build_intersection, one_flow_per_movement
+from tests.generated_scenario import (
+    DEMAND_PERIOD_S,
+    FOUR_WAY,
+    Built,
+    build_intersection,
+    free_flow_population,
+    one_flow_per_movement,
+)
 from traffic_lab.backend import BackendConfig
 from traffic_lab.domain.network import Network
 
@@ -44,13 +52,20 @@ class Scenario:
     def network(self) -> Network:
         return self.built.network
 
+    @property
+    def free_flow_population(self) -> float:
+        """See `tests.generated_scenario.free_flow_population`."""
+        return free_flow_population(self.built, DEMAND_PERIOD_S)
+
 
 @pytest.fixture(scope="session")
 def scenario(tmp_path_factory: pytest.TempPathFactory) -> Scenario:
     """The net path, the route path and the canonical `Network`, built once per session."""
     out = tmp_path_factory.mktemp("generated_scenario")
     built = build_intersection(FOUR_WAY, out)
-    routes = one_flow_per_movement(built, out / "demand.rou.xml", DEMAND_END_S)
+    routes = one_flow_per_movement(
+        built, out / "demand.rou.xml", DEMAND_END_S, period_s=DEMAND_PERIOD_S
+    )
     return Scenario(built, routes)
 
 

@@ -21,8 +21,8 @@ from tests.backend.conftest import Scenario, make_config
 from traffic_lab.backend import SumoBackend
 from traffic_lab.domain.state import TrueState
 
-#: Full cycles of the static program to run: enough for a saturated queue and
-#: hundreds of arrivals, so the counters and the halting bookkeeping are all
+#: Full cycles of the static program to run: enough for queues on every red and
+#: about a hundred arrivals, so the counters and the halting bookkeeping are all
 #: exercised rather than just the empty-network case.
 CYCLES = 5
 
@@ -64,8 +64,8 @@ def test_the_sequence_is_not_trivially_empty(scenario: Scenario) -> None:
     than assumed.
     """
     states = _run("traci", scenario, _steps(scenario))
-    # More vehicles in the network at once than there are flows feeding it.
-    assert max(len(state.vehicles) for state in states) > len(scenario.built.movements)
+    # More vehicles at once than the network holds when nothing waits.
+    assert max(len(state.vehicles) for state in states) > scenario.free_flow_population
     assert max(lane.queue_count for state in states for lane in state.lanes) > 0
     assert states[-1].counters.arrived_at_sink > 0
     # Every authored phase was shown, decoded as a canonical phase (D-034).

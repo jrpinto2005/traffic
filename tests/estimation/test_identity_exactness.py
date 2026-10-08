@@ -34,7 +34,7 @@ from traffic_lab.estimation import IdentityEstimator
 from traffic_lab.sensing import OracleSensor
 
 #: Steps per run, at either step length. Several full cycles of the static
-#: program (`Built.static_cycle_s()`, checked below) and a saturated queue, so
+#: program (`Built.static_cycle_s()`, checked below), with a queue on every red, so
 #: that queues form, discharge and reform rather than the empty network being
 #: compared with itself.
 STEPS = 600
@@ -128,8 +128,8 @@ def test_oracle_and_identity_estimator_reproduce_the_true_lane_state_exactly(
     # The comparisons above all passed. These say they were comparing something.
     assert coverage.samples == expected_samples
     assert coverage.lane_comparisons > 0
-    # More vehicles in the network at once than there are flows feeding it.
-    assert coverage.max_vehicles > len(scenario.built.movements), (
+    # More vehicles at once than the network holds when nothing waits.
+    assert coverage.max_vehicles > scenario.free_flow_population, (
         "the network never filled; nothing was counted"
     )
     assert coverage.queued_lane_samples > 0, "no queue ever formed; queue_count was always 0"

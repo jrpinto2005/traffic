@@ -287,13 +287,9 @@ def test_a_loaded_snapshot_reproduces_the_state_it_was_saved_from(
     SUMO keeps round trips to 0.01, because that is the precision its state file
     is written at. See `_STATE_FILE_PRECISION_M`.
 
-    `insertion_failures` is the exception, recorded rather than hidden. It is not
-    in the sidecar: it is SUMO's pending-vehicle list, read live, and SUMO
-    reports that list **empty at the instant of a load** although the insertion
-    backlog is restored -- one step later the loaded run's pending list equals
-    the un-snapshotted continuation's (measured on 1.27.1, both transports). The
-    M0 reference scenario had no backlog at its snapshot, so this went unseen
-    until T1.14 moved the test to a demand that keeps vehicles waiting.
+    `insertion_failures` is the exception and is not compared here: it is not in
+    the sidecar but read live from SUMO, which reports it wrongly at the instant
+    of a load -- see `test_the_pending_list_reads_empty_at_the_instant_of_a_load`.
     """
     snapshot = tmp_path / "state.xml"
     backend = SumoBackend()
@@ -309,14 +305,15 @@ def test_a_loaded_snapshot_reproduces_the_state_it_was_saved_from(
         backend.close()
 
     assert loaded.time_s == saved.time_s
-    assert saved.counters.insertion_failures > 0, "the exception above must be exercised"
-    assert loaded.counters == dataclasses.replace(saved.counters, insertion_failures=0)
+    assert dataclasses.replace(loaded.counters, insertion_failures=0) == dataclasses.replace(
+        saved.counters, insertion_failures=0
+    )
     assert loaded.signals == saved.signals
     assert [lane.queue_count for lane in loaded.lanes] == [lane.queue_count for lane in saved.lanes]
 
     by_id = {vehicle.id: vehicle for vehicle in saved.vehicles}
     assert {vehicle.id for vehicle in loaded.vehicles} == set(by_id)
-    assert len(by_id) > len(scenario.built.movements)
+    assert len(by_id) > scenario.free_flow_population
     for vehicle in loaded.vehicles:
         before = by_id[vehicle.id]
         assert vehicle.lane == before.lane
@@ -328,6 +325,41 @@ def test_a_loaded_snapshot_reproduces_the_state_it_was_saved_from(
         )
         assert abs(vehicle.speed_mps - before.speed_mps) <= _STATE_FILE_PRECISION_M
         assert abs(vehicle.time_loss_s - before.time_loss_s) <= _STATE_FILE_PRECISION_M
+
+
+@pytest.mark.parametrize("transport", ["traci", "libsumo"])
+def test_the_pending_list_reads_empty_at_the_instant_of_a_load(
+    transport: str, scenario: Scenario, tmp_path: Path
+) -> None:
+    """A SUMO quirk that `insertion_failures` inherits, recorded rather than hidden.
+
+    `insertion_failures` is SUMO's pending-vehicle list, read live rather than
+    kept in the sidecar, and SUMO reports that list **empty at the instant of a
+    load** although the insertion backlog is restored: one step later it is back
+    (measured on 1.27.1, both transports: the loaded run's pending list then
+    equals the un-snapshotted continuation's). The M0 reference scenario had no
+    backlog at its snapshot, so this went unseen until T1.14 moved the snapshot
+    tests to another demand. Run on the overload demand, which guarantees a
+    backlog. If this ever fails, SUMO began reporting the backlog at load and
+    the snapshot test above can compare `insertion_failures` too.
+    """
+    routes = tmp_path / "overload.rou.xml"
+    routes.write_text(_overload_routes(scenario.built))
+    snapshot = tmp_path / "state.xml"
+    backend = SumoBackend()
+    backend.start(scenario.net, routes, make_config(transport=transport), network=scenario.network)
+    try:
+        saved = _run_to(backend, 120)
+        backend.save_state(snapshot)
+        backend.load_state(snapshot)
+        loaded = backend.project()
+        one_step_later = _run_to(backend, 1)
+    finally:
+        backend.close()
+
+    assert saved.counters.insertion_failures > 0
+    assert loaded.counters.insertion_failures == 0
+    assert one_step_later.counters.insertion_failures > 0
 
 
 def _replay(transport: str, scenario: Scenario, snapshot: Path, steps: int) -> list[TrueState]:
@@ -381,7 +413,7 @@ def test_replaying_a_snapshot_is_deterministic(
     second = _replay(transport, scenario, snapshot, 40)
 
     assert first == second
-    assert len(first[-1].vehicles) > len(scenario.built.movements)
+    assert len(first[-1].vehicles) > scenario.free_flow_population
 
 
 def test_a_replay_depends_on_the_processs_rng_history_too(
@@ -431,4 +463,4 @@ def test_save_and_load_do_not_differ_between_transports(scenario: Scenario, tmp_
     over_libsumo = _replay("libsumo", scenario, snapshot, 20)
 
     assert over_traci == over_libsumo
-    assert len(over_traci[-1].vehicles) > len(scenario.built.movements)
+    assert len(over_traci[-1].vehicles) > scenario.free_flow_population

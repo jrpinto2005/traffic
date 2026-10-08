@@ -21,12 +21,14 @@ amendment separates them:
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import pytest
 import traci
 
 from tests.backend.conftest import Scenario, make_config
+from tests.generated_scenario import OVERLOAD_PERIOD_S, one_flow_per_movement
 from traffic_lab.backend import SumoBackend
 from traffic_lab.backend import transport as transport_module
 
@@ -91,12 +93,16 @@ def counting_traci(monkeypatch: pytest.MonkeyPatch) -> _CountingApi:
 
 
 def test_traci_state_reads_per_step_do_not_scale_with_vehicle_count(
-    scenario: Scenario, counting_traci: _CountingApi
+    scenario: Scenario, counting_traci: _CountingApi, tmp_path: Path
 ) -> None:
-    backend = SumoBackend()
-    backend.start(
-        scenario.net, scenario.routes, make_config(transport="traci"), network=scenario.network
+    """Needs a population that grows by far more than the sampling noise, so it
+    runs the overload demand rather than the shared fixture's, whose population
+    stays near its free-flow level."""
+    routes = one_flow_per_movement(
+        scenario.built, tmp_path / "overload.rou.xml", 3600.0, period_s=OVERLOAD_PERIOD_S
     )
+    backend = SumoBackend()
+    backend.start(scenario.net, routes, make_config(transport="traci"), network=scenario.network)
     try:
         backend.step()
         sparse = backend.project()
