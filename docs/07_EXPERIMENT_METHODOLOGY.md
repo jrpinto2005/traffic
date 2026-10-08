@@ -35,7 +35,7 @@ three incompatible definitions that can differ by a factor of two on the same ru
 
 | Metric | Unit | Definition |
 | --- | --- | --- |
-| **Time loss** *(primary delay metric)* | s | Realised travel time minus the time the same route would take at the vehicle's desired speed. SUMO's `timeLoss`. Includes acceleration and deceleration losses. `D-006`. |
+| **Delay** *(primary metric)* | s | **Time loss plus insertion delay** (`D-006`, amended 2026-10-07). Time loss: realised travel time minus the time the same route would take at the vehicle's desired speed — SUMO's `timeLoss`, including acceleration and deceleration losses. Insertion delay: time spent waiting to enter the network — SUMO's `departDelay`. Both from tripinfo (`D-035`); always also reported separately. |
 | **Travel time** | s | Departure to arrival, where arrival is a boundary sink **or** a mid-link destination (`D-022`). |
 | **Waiting time** | s | Cumulative time with speed below 0.1 m/s. |
 | **Stops** | count | Number of transitions from moving to halting (0.1 m/s threshold), excluding the initial insertion. |
@@ -58,9 +58,15 @@ and an HCM-style control delay approximation at intersection level.
 | Metric | Unit | Definition |
 | --- | --- | --- |
 | **Throughput** | veh/h | Completed trips per hour of measurement window. Completion means boundary sink **or** mid-link arrival (`D-022`). |
-| **Mean time loss** | s/veh | Mean over vehicles that completed within the window. |
+| **Mean delay** | s/veh | Mean primary delay over vehicles that completed within the window; its two components reported beside it. |
 | **Total time loss** | veh·h | Sum over all vehicles including those still in-network, using their accumulated loss so far. Reported alongside the mean because the mean alone hides unserved demand. |
 | **Trip completion rate** | fraction | Completed / (completed + still in-network). §4. |
+
+**Where each metric comes from (`D-035`).** Vehicle-level metrics and every network metric
+built from completed trips come from SUMO's tripinfo, parsed by the backend at run end and
+filtered to the measurement window. Lane-level metrics and total time loss of vehicles still
+in-network accumulate from `TrueState` every step. **Signal utilisation** needs decoded signal
+state (T1.14) and saturation flow (T1.5); it is not part of T1.8.
 
 ### 2.4 Separability by vehicle type
 
@@ -152,7 +158,7 @@ Per `D-008`, a run is **invalid** — not merely noisy — if any of the followi
 | Condition | Why it invalidates |
 | --- | --- |
 | Any teleport | Teleporting deletes the congestion being measured, and deletes more of it for worse controllers |
-| Insertion failures above threshold | The applied demand no longer matches the configured demand, so the experiment measures something other than what it claims |
+| Insertion loss above 1 % (`D-008`) | The applied demand no longer matches the configured demand, so the experiment measures something other than what it claims |
 | Gridlock detected | Metrics past that point are meaningless |
 | Snapshot/network hash mismatch | The run did not start from the state it claims |
 
