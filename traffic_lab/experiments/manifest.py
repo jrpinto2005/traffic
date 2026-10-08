@@ -56,6 +56,10 @@ class RunManifest(BaseModel):
     runner copies counters across by name rather than through a translation
     table in which a typo would drop a counter silently."""
 
+    sumo_warnings: int
+    """Warnings SUMO wrote to the run's `--error-log` (T1.11 Amendment A2). Reported,
+    not an invalidity cause."""
+
     wall_clock_s: float
     """Wall-clock time this invocation took, in seconds."""
 
@@ -67,7 +71,7 @@ def build_manifest(config: RunConfig, *, wall_clock_s: float, peak_memory_mb: fl
     """Build the manifest for a run.
 
     At T1.1 no simulation has happened: the CLI stub only loads and validates a
-    config. `validity` and `trips` are therefore recorded at their honest
+    config. `validity`, `trips` and `sumo_warnings` are therefore recorded at their honest
     pre-simulation value of zero/false, per D-008 and D-022's "recorded always,
     even when zero" rule, rather than omitted or faked — T1.11's runner is what
     overwrites them with real counts. `decision_interval_s` is empty because no
@@ -83,6 +87,7 @@ def build_manifest(config: RunConfig, *, wall_clock_s: float, peak_memory_mb: fl
         warmup_design=config.warmup_design,
         validity={"teleports": 0, "insertion_failures": 0, "gridlock_detected": False},
         trips={"arrived_at_sink": 0, "arrived_mid_link": 0, "still_in_network": 0},
+        sumo_warnings=0,
         wall_clock_s=wall_clock_s,
         peak_memory_mb=peak_memory_mb,
     )
