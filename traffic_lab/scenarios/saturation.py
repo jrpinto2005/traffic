@@ -4,30 +4,38 @@ D-022 expresses demand as a fraction of saturation flow and D-013's Webster
 computes from it; D-037 fixes where the number comes from: a pinned measurement
 in SUMO, not the HCM.
 
-**The procedure** (`calibrate_saturation_flow`, T1.5 Amendment A1). For one
-(vehicle type, speed limit, turn direction):
+**The quantity** is Webster's: the rate at which a **standing queue** discharges
+across the stop line once the light turns green. Holding a movement green from
+an empty start does not measure it -- no queue ever forms at the stop line (under
+1 % of counted through vehicles halted, T1.5 escalation E1), so the count is the
+boundary's insertion capacity, about 11 % below the discharge of a real queue.
 
-1. Build a T1.3 intersection (`CALIBRATION_LANES` lanes per approach, the given
-   speed limit) whose program greens that one movement of approach 0 and holds
-   it green for longer than the run.
+**The procedure** (`calibrate_saturation_flow`). For one (vehicle type, speed
+limit, turn direction):
+
+1. Build a T1.3 intersection with `CALIBRATION_LANES` lanes per approach,
+   approaches `CALIBRATION_APPROACH_M` long (room for the queue) and the given
+   speed limit. Its program first greens a movement nobody uses (approach 1's
+   through) for `CALIBRATION_PHASE_S` plus the yellow -- the red pre-load of the
+   measured movement -- then greens approach 0's `turn` for `CALIBRATION_PHASE_S`.
 2. Feed that movement alone from approach 0 at `SATURATING_DEMAND_VPH_PER_LANE`
-   per lane serving it -- more than any lane discharges, so a queue of vehicles
-   waiting to enter forms at once and never empties.
-3. Run `sumo` for `CALIBRATION_RUN_S` with each of `CALIBRATION_SEEDS`, and count
-   the vehicles arriving at the movement's exit edge in `CALIBRATION_WINDOW_S`,
-   after the queue has formed.
-4. Per-lane saturation flow = count / window hours / lanes serving the movement
-   (the distinct approach lanes its connections leave from: both lanes for the
-   through movement, one for each turn, under netconvert's default assignment).
+   per serving lane, so the queue builds through the red and outlasts the green's
+   start.
+3. Record each vehicle crossing the stop line with an `instantInductionLoop` at
+   the end of every serving lane, for each of `CALIBRATION_SEEDS`.
+4. On each serving lane, the vehicles **queued at green onset** are those that
+   entered the network before it (nothing can pass the red). Of those, in
+   crossing order, take the headways from the `FIRST_COUNTED_VEHICLE`-th (the
+   HCM convention: start-up lost time is in the first four). A lane must have
+   queued at least `MIN_QUEUE_PER_LANE` vehicles, or the run raises.
+5. Per-lane saturation flow = 3600 / mean headway, pooling the serving lanes
+   (both lanes for the through movement, one for each turn, under netconvert's
+   default assignment). Mean and sample SD across seeds are stored, with the
+   fraction of counted vehicles that halted -- 1.0 when the queue was real.
 
-Each run checks its own precondition: every vehicle departing in the window
-must have waited to enter (`departDelay > 0`), or the source was not saturated
-and the count is a demand, not a capacity. The fraction of counted vehicles
-that ever halted is recorded beside each result.
-
-**Results** are stored in `configs/saturation_flow.json`, keyed by SUMO version
-and a hash of the `vType` parameters (`vehicles.vtype_hash`). A lookup against
-a different SUMO version or `vType` raises rather than reusing stale numbers.
+**Results** are stored in `configs/saturation_flow.json`, keyed by SUMO version,
+a hash of the `vType` parameters (`vehicles.vtype_hash`) and the step length. A
+lookup for a different key raises rather than reusing stale numbers.
 Regenerate with `python -m traffic_lab.scenarios.saturation`.
 
 **An approach's saturation flow** is its lane count times the per-lane through
@@ -36,6 +44,7 @@ value at its speed limit (D-037).
 
 from __future__ import annotations
 
+import itertools
 import json
 import math
 import tempfile
@@ -71,17 +80,33 @@ CALIBRATION_SEEDS: tuple[int, ...] = (1, 2, 3, 4, 5)
 #: Lanes per approach on the calibration intersection: T1.3's default.
 CALIBRATION_LANES = 2
 
-#: Simulated length of one calibration run, seconds.
-CALIBRATION_RUN_S = 3600.0
+#: Node spacing of the calibration intersection, metres: a ~990 m approach lane
+#: stores ~130 standing cars, more than the pre-load queues.
+CALIBRATION_APPROACH_M = 1000.0
 
-#: The counting window [start, end), seconds: after the queue has formed.
-CALIBRATION_WINDOW_S = (600.0, 3600.0)
+#: Duration of each of the program's two greens, seconds. The measured movement is
+#: red for this plus the yellow (the pre-load), then green for this.
+CALIBRATION_PHASE_S = 240.0
 
-#: Offered demand per serving lane, veh/h: one vehicle per second per lane, about
-#: twice any per-lane discharge SUMO produces.
+#: Yellow after each green, seconds; no all-red.
+CALIBRATION_YELLOW_S = 3.0
+
+#: Simulated time after the measured green ends, seconds, so every vehicle that
+#: crossed in it reaches the end of the exit edge and appears in tripinfo.
+CALIBRATION_TAIL_S = 120.0
+
+#: Headways are counted from this vehicle in the queue onward (HCM convention).
+FIRST_COUNTED_VEHICLE = 5
+
+#: A serving lane must have queued at least this many vehicles at green onset.
+MIN_QUEUE_PER_LANE = 30
+
+#: Offered demand per serving lane, veh/h: one vehicle per second per lane, more
+#: than a lane can take in, so the queue fills as fast as insertion allows.
 SATURATING_DEMAND_VPH_PER_LANE = 3600.0
 
-#: SUMO's step length during calibration, seconds: the backend's default.
+#: SUMO's step length during calibration, seconds: the backend's default. Part of
+#: the lookup key.
 CALIBRATION_STEP_LENGTH_S = 1.0
 
 #: The committed results (D-037).
@@ -99,11 +124,11 @@ class SaturationFlowLookupError(LookupError):
 
 
 class StaleCalibrationError(SaturationFlowLookupError):
-    """A calibration exists, but for a different SUMO version or `vType`."""
+    """A calibration exists, but for a different SUMO version, `vType` or step length."""
 
 
 class UnsaturatedCalibrationError(RuntimeError):
-    """A calibration run's source was not saturated, so it measured demand."""
+    """A calibration run's queue was too short to measure discharge from."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,15 +139,20 @@ class SaturationFlowCalibration:
     vehicle_type: VehicleType
     vtype: dict[str, str]
     vtype_hash: str
+    step_length_s: float
     speed_limit_mps: float
     turn: TurnDirection
     lanes_per_approach: int
     serving_lanes: int
-    step_length_s: float
-    window_s: tuple[float, float]
+    approach_length_m: float
+    red_s: float  # pre-load before the measured green
+    green_s: float
+    first_counted_vehicle: int
     seeds: tuple[int, ...]
+    queued_per_lane: tuple[tuple[int, ...], ...]  # per seed, per serving lane, at green onset
+    counted_headways: tuple[int, ...]  # per seed, all serving lanes
+    halted_fraction: tuple[float, ...]  # per seed: counted vehicles that had halted
     per_seed_vph_per_lane: tuple[float, ...]
-    halted_fraction: tuple[float, ...]  # per seed: counted vehicles that ever halted
     mean_vph_per_lane: float
     std_vph_per_lane: float  # sample standard deviation across seeds
 
@@ -136,18 +166,31 @@ class SaturationFlowCalibration:
             vehicle_type=VehicleType(raw["vehicle_type"]),
             vtype={str(k): str(v) for k, v in raw["vtype"].items()},
             vtype_hash=str(raw["vtype_hash"]),
+            step_length_s=float(raw["step_length_s"]),
             speed_limit_mps=float(raw["speed_limit_mps"]),
             turn=TurnDirection(raw["turn"]),
             lanes_per_approach=int(raw["lanes_per_approach"]),
             serving_lanes=int(raw["serving_lanes"]),
-            step_length_s=float(raw["step_length_s"]),
-            window_s=(float(raw["window_s"][0]), float(raw["window_s"][1])),
+            approach_length_m=float(raw["approach_length_m"]),
+            red_s=float(raw["red_s"]),
+            green_s=float(raw["green_s"]),
+            first_counted_vehicle=int(raw["first_counted_vehicle"]),
             seeds=tuple(int(s) for s in raw["seeds"]),
-            per_seed_vph_per_lane=tuple(float(v) for v in raw["per_seed_vph_per_lane"]),
+            queued_per_lane=tuple(tuple(int(q) for q in qs) for qs in raw["queued_per_lane"]),
+            counted_headways=tuple(int(n) for n in raw["counted_headways"]),
             halted_fraction=tuple(float(v) for v in raw["halted_fraction"]),
+            per_seed_vph_per_lane=tuple(float(v) for v in raw["per_seed_vph_per_lane"]),
             mean_vph_per_lane=float(raw["mean_vph_per_lane"]),
             std_vph_per_lane=float(raw["std_vph_per_lane"]),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class _SeedResult:
+    vph_per_lane: float
+    queued_per_lane: tuple[int, ...]
+    counted_headways: int
+    halted_fraction: float
 
 
 # --- Measurement ------------------------------------------------------------------
@@ -163,40 +206,55 @@ def calibrate_saturation_flow(
 ) -> SaturationFlowCalibration:
     """Measure per-lane saturation flow, veh/h/lane, by the procedure in the module docstring.
 
-    Writes the calibration intersection and each run's tripinfo under `work_dir`.
+    Writes the calibration intersection and each run's outputs under `work_dir`.
     """
     if len(seeds) < 5:
         raise ValueError(f"D-037 calibration needs at least five seeds, got {len(seeds)}")
     if len(set(seeds)) != len(seeds):
         raise ValueError(f"calibration seeds repeat: {list(seeds)}")
-    # Held green for longer than the run: the program's one phase never ends.
     timing = SignalTiming(
-        min_green_s=10.0 * CALIBRATION_RUN_S, max_green_s=0.0, yellow_s=3.0, all_red_s=0.0
+        min_green_s=CALIBRATION_PHASE_S,
+        max_green_s=0.0,
+        yellow_s=CALIBRATION_YELLOW_S,
+        all_red_s=0.0,
     )
     spec = IntersectionSpec(
         lanes_per_approach=CALIBRATION_LANES,
+        approach_length_m=CALIBRATION_APPROACH_M,
         speed_limit_mps=speed_limit_mps,
-        phases=[PhaseSpec(green=[(0, turn)])],
+        # A green for an unused movement (the measured one's red), then the measured one.
+        phases=[PhaseSpec(green=[(1, TurnDirection.THROUGH)]), PhaseSpec(green=[(0, turn)])],
         timing=timing,
     )
     net_file, network = build(spec, work_dir / "net")
-    from_edge, to_edge, serving_lanes = _movement(network, net_file, turn)
+    from_edge, to_edge, lanes = _movement(network, net_file, turn)
+    green_start_s = CALIBRATION_PHASE_S + CALIBRATION_YELLOW_S
+    green_end_s = green_start_s + CALIBRATION_PHASE_S
+    end_s = green_end_s + CALIBRATION_TAIL_S
 
     routes = work_dir / "saturating.rou.xml"
-    demand_vph = SATURATING_DEMAND_VPH_PER_LANE * serving_lanes
     routes.write_text(
         "<routes>\n"
         f"    {vtype_xml(vehicle_type)}\n"
         f'    <route id="movement" edges="{from_edge} {to_edge}"/>\n'
         f'    <flow id="saturating" type="{vtype_id(vehicle_type)}" route="movement" '
-        f'begin="0" end="{_number(CALIBRATION_RUN_S)}" vehsPerHour="{_number(demand_vph)}"'
-        f"{depart_xml()}/>\n"
+        f'begin="0" end="{_number(green_end_s)}" '
+        f'vehsPerHour="{_number(SATURATING_DEMAND_VPH_PER_LANE * len(lanes))}"{depart_xml()}/>\n'
         "</routes>\n"
     )
 
-    per_seed: list[float] = []
-    halted: list[float] = []
+    results: list[_SeedResult] = []
     for seed in seeds:
+        loops = work_dir / f"stopline.seed{seed}.xml"
+        detectors = work_dir / f"stopline.seed{seed}.add.xml"
+        detectors.write_text(
+            "<additional>\n"
+            + "".join(
+                f'    <instantInductionLoop id="{lane}" lane="{lane}" pos="-0.1" file="{loops}"/>\n'
+                for lane in lanes
+            )
+            + "</additional>\n"
+        )
         tripinfo = work_dir / f"tripinfo.seed{seed}.xml"
         run_tool(
             "sumo",
@@ -205,12 +263,14 @@ def calibrate_saturation_flow(
                 str(net_file),
                 "--route-files",
                 str(routes),
+                "--additional-files",
+                str(detectors),
                 "--seed",
                 str(seed),
                 "--step-length",
                 _number(CALIBRATION_STEP_LENGTH_S),
                 "--end",
-                _number(CALIBRATION_RUN_S),
+                _number(end_s),
                 # The backend's flags that bear on dynamics (D-008, D-022).
                 "--time-to-teleport",
                 "-1",
@@ -222,74 +282,105 @@ def calibrate_saturation_flow(
                 "--duration-log.disable",
                 "true",
             ],
-            # By construction: every link but the movement's stays red all run.
+            # By construction: most links stay red all run.
             expected_warnings=("Missing green phase in tlLogic",),
         )
-        vph, halted_fraction = _count(tripinfo, to_edge, serving_lanes, seed)
-        per_seed.append(vph)
-        halted.append(halted_fraction)
+        results.append(_discharge(loops, tripinfo, lanes, green_start_s, green_end_s, seed))
 
-    values = np.array(per_seed)
+    values = np.array([r.vph_per_lane for r in results])
     return SaturationFlowCalibration(
         sumo_version=sumo_version(),
         vehicle_type=vehicle_type,
         vtype=vtype_attributes(vehicle_type),
         vtype_hash=vtype_hash(vehicle_type),
+        step_length_s=CALIBRATION_STEP_LENGTH_S,
         speed_limit_mps=speed_limit_mps,
         turn=turn,
         lanes_per_approach=CALIBRATION_LANES,
-        serving_lanes=serving_lanes,
-        step_length_s=CALIBRATION_STEP_LENGTH_S,
-        window_s=CALIBRATION_WINDOW_S,
+        serving_lanes=len(lanes),
+        approach_length_m=CALIBRATION_APPROACH_M,
+        red_s=green_start_s,
+        green_s=CALIBRATION_PHASE_S,
+        first_counted_vehicle=FIRST_COUNTED_VEHICLE,
         seeds=tuple(seeds),
-        per_seed_vph_per_lane=tuple(per_seed),
-        halted_fraction=tuple(halted),
+        queued_per_lane=tuple(r.queued_per_lane for r in results),
+        counted_headways=tuple(r.counted_headways for r in results),
+        halted_fraction=tuple(r.halted_fraction for r in results),
+        per_seed_vph_per_lane=tuple(float(v) for v in values),
         mean_vph_per_lane=float(values.mean()),
         std_vph_per_lane=float(values.std(ddof=1)),
     )
 
 
-def _movement(network: Network, net_file: Path, turn: TurnDirection) -> tuple[str, str, int]:
-    """(from edge SUMO ID, to edge SUMO ID, serving lane count) of approach 0's `turn`."""
-    edge_ids: list[str] = json.loads((net_file.parent / f"{NET_STEM}{IDS_SUFFIX}").read_text())[
-        "edges"
-    ]
+def _movement(
+    network: Network, net_file: Path, turn: TurnDirection
+) -> tuple[str, str, tuple[str, ...]]:
+    """(from edge, to edge, serving lanes) of approach 0's `turn`, as SUMO IDs."""
+    raw = json.loads((net_file.parent / f"{NET_STEM}{IDS_SUFFIX}").read_text())
+    edge_ids: list[str] = raw["edges"]
+    lane_ids: list[str] = raw["lanes"]
     (intersection,) = network.signalized_intersections
-    lanes = {lane.id: lane for lane in network.lanes}
     connections = {c.id: c for c in network.connections}
     for movement in movements_of(network, intersection.junction):
         if edge_ids[movement.from_edge] == approach_in_edge(0) and movement.turn == turn:
-            serving = {connections[c].from_lane for c in movement.connections}
-            assert all(lanes[lane].edge == movement.from_edge for lane in serving)
-            return edge_ids[movement.from_edge], edge_ids[movement.to_edge], len(serving)
+            serving = sorted({lane_ids[connections[c].from_lane] for c in movement.connections})
+            return edge_ids[movement.from_edge], edge_ids[movement.to_edge], tuple(serving)
     raise ValueError(f"approach 0 has no {turn.value} movement")
 
 
-def _count(tripinfo: Path, to_edge: str, serving_lanes: int, seed: int) -> tuple[float, float]:
-    """(veh/h/lane arriving on `to_edge` in the window, fraction of those that halted)."""
-    start_s, end_s = CALIBRATION_WINDOW_S
-    counted = halted = 0
-    for trip in ET.parse(tripinfo).getroot().iter("tripinfo"):
-        depart_s = float(trip.get("depart", "nan"))
-        if start_s <= depart_s < end_s and not float(trip.get("departDelay", "nan")) > 0.0:
-            raise UnsaturatedCalibrationError(
-                f"seed {seed}: vehicle {trip.get('id')} entered at {depart_s} s without "
-                f"waiting, so the source was not saturated (D-037 needs a saturated queue)"
-            )
-        arrival_s = float(trip.get("arrival", "nan"))
-        if not start_s <= arrival_s < end_s:
+def _discharge(
+    loops: Path,
+    tripinfo: Path,
+    lanes: Sequence[str],
+    green_start_s: float,
+    green_end_s: float,
+    seed: int,
+) -> _SeedResult:
+    """Headways of the standing queue's discharge, from the stop-line crossings."""
+    trips = {t.get("id", ""): t for t in ET.parse(tripinfo).getroot().iter("tripinfo")}
+    crossings: dict[str, list[tuple[float, str]]] = {lane: [] for lane in lanes}
+    for event in ET.parse(loops).getroot().iter("instantOut"):
+        if event.get("state") != "enter":
             continue
-        if trip.get("arrivalLane", "").rsplit("_", 1)[0] != to_edge:
+        time_s = float(event.get("time", "nan"))
+        if green_start_s <= time_s < green_end_s:
+            crossings[event.get("id", "")].append((time_s, event.get("vehID", "")))
+
+    headways: list[float] = []
+    queued: list[int] = []
+    counted = halted = 0
+    for lane in lanes:
+        # The queue at green onset: in crossing order, the vehicles that entered the
+        # network before it, up to the first that did not.
+        queue: list[tuple[float, str]] = []
+        for time_s, vehicle in sorted(crossings[lane]):
+            trip = trips.get(vehicle)
+            if trip is None:
+                raise UnsaturatedCalibrationError(
+                    f"seed {seed}: vehicle {vehicle} crossed the stop line of {lane} but is "
+                    f"not in tripinfo; lengthen CALIBRATION_TAIL_S"
+                )
+            if not float(trip.get("depart", "nan")) < green_start_s:
+                break
+            queue.append((time_s, vehicle))
+        queued.append(len(queue))
+        if len(queue) < MIN_QUEUE_PER_LANE:
             raise UnsaturatedCalibrationError(
-                f"seed {seed}: vehicle {trip.get('id')} arrived on {trip.get('arrivalLane')}, "
-                f"not on the movement's exit edge {to_edge}"
+                f"seed {seed}: {lane} queued {len(queue)} vehicles at green onset, fewer "
+                f"than {MIN_QUEUE_PER_LANE}; the queue is too short to measure discharge"
             )
-        counted += 1
-        halted += int(trip.get("waitingCount", "0")) > 0
-    if counted == 0:
-        raise UnsaturatedCalibrationError(f"seed {seed}: no vehicle arrived in the window")
-    hours = (end_s - start_s) / 3600.0
-    return counted / hours / serving_lanes, halted / counted
+        times = [t for t, _ in queue]
+        # Vehicle k (1-based) has headway t_k - t_(k-1); count from k = FIRST_COUNTED_VEHICLE.
+        headways += [b - a for a, b in itertools.pairwise(times)][FIRST_COUNTED_VEHICLE - 2 :]
+        for _, vehicle in queue[FIRST_COUNTED_VEHICLE - 1 :]:
+            counted += 1
+            halted += int(trips[vehicle].get("waitingCount", "0")) > 0
+    return _SeedResult(
+        vph_per_lane=3600.0 / float(np.mean(headways)),
+        queued_per_lane=tuple(queued),
+        counted_headways=len(headways),
+        halted_fraction=halted / counted,
+    )
 
 
 def _number(value: float) -> str:
@@ -314,14 +405,17 @@ def lookup_calibration(
     speed_limit_mps: float,
     turn: TurnDirection,
     *,
+    step_length_s: float = CALIBRATION_STEP_LENGTH_S,
     table: Path = SATURATION_FLOW_TABLE,
     version: str | None = None,
 ) -> SaturationFlowCalibration:
-    """The stored calibration for this (type, speed, turn), for this SUMO and `vType`.
+    """The stored calibration for this (type, speed, turn), for this SUMO, `vType` and
+    step length.
 
-    `version` defaults to the running SUMO's. Raises `StaleCalibrationError` if
-    the table holds this (type, speed, turn) only for another SUMO version or
-    `vType`, and `SaturationFlowLookupError` if it does not hold it at all.
+    `version` defaults to the running SUMO's, `step_length_s` to the backend's
+    default. Raises `StaleCalibrationError` if the table holds this (type,
+    speed, turn) only under another key, and `SaturationFlowLookupError` if it
+    does not hold it at all.
     """
     version = sumo_version() if version is None else version
     current_hash = vtype_hash(vehicle_type)
@@ -338,13 +432,20 @@ def lookup_calibration(
             f"{speed_limit_mps} m/s, {turn.value} (D-037); run calibrate_saturation_flow"
         )
     for c in candidates:
-        if c.sumo_version == version and c.vtype_hash == current_hash:
+        if (
+            c.sumo_version == version
+            and c.vtype_hash == current_hash
+            and c.step_length_s == step_length_s
+        ):
             return c
-    found = ", ".join(f"SUMO {c.sumo_version} vType {c.vtype_hash[:12]}" for c in candidates)
+    found = ", ".join(
+        f"SUMO {c.sumo_version} vType {c.vtype_hash[:12]} step {c.step_length_s} s"
+        for c in candidates
+    )
     raise StaleCalibrationError(
         f"{table.name} calibrates {vehicle_type.value} at {speed_limit_mps} m/s, "
-        f"{turn.value} only for {found}; this is SUMO {version} vType {current_hash[:12]}. "
-        f"Recalibrate rather than reuse stale numbers (D-037)"
+        f"{turn.value} only for {found}; this is SUMO {version} vType {current_hash[:12]} "
+        f"step {step_length_s} s. Recalibrate rather than reuse stale numbers (D-037)"
     )
 
 
@@ -353,12 +454,18 @@ def per_lane_saturation_flow_vph(
     speed_limit_mps: float,
     turn: TurnDirection,
     *,
+    step_length_s: float = CALIBRATION_STEP_LENGTH_S,
     table: Path = SATURATION_FLOW_TABLE,
     version: str | None = None,
 ) -> float:
     """The calibrated mean saturation flow, veh/h/lane. See `lookup_calibration`."""
     return lookup_calibration(
-        vehicle_type, speed_limit_mps, turn, table=table, version=version
+        vehicle_type,
+        speed_limit_mps,
+        turn,
+        step_length_s=step_length_s,
+        table=table,
+        version=version,
     ).mean_vph_per_lane
 
 
@@ -369,13 +476,15 @@ def main() -> None:
         for speed in CALIBRATED_SPEEDS_MPS:
             for turn in CALIBRATED_TURNS:
                 work_dir = Path(tmp) / f"{speed}_{turn.value}"
-                calibration = calibrate_saturation_flow(VehicleType.CAR, speed, turn, work_dir)
+                c = calibrate_saturation_flow(VehicleType.CAR, speed, turn, work_dir)
                 print(
-                    f"{turn.value:>8} at {speed} m/s: {calibration.mean_vph_per_lane:.1f} "
-                    f"+- {calibration.std_vph_per_lane:.1f} veh/h/lane "
-                    f"(seeds {list(calibration.seeds)})"
+                    f"{turn.value:>8} at {speed} m/s: {c.mean_vph_per_lane:.1f} "
+                    f"+- {c.std_vph_per_lane:.1f} veh/h/lane over seeds {list(c.seeds)}; "
+                    f"per seed {[round(v, 1) for v in c.per_seed_vph_per_lane]}; "
+                    f"queued per lane {list(c.queued_per_lane)}; "
+                    f"headways {list(c.counted_headways)}; halted {list(c.halted_fraction)}"
                 )
-                calibrations.append(calibration)
+                calibrations.append(c)
     write_table(calibrations, SATURATION_FLOW_TABLE)
 
 

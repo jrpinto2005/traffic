@@ -18,10 +18,9 @@ from xml.sax.saxutils import quoteattr
 from traffic_lab.domain.network import VehicleType
 from traffic_lab.scenarios.parse import SUMO_CLASS_OF_TYPE
 
-#: How every generated vehicle enters the network. The convention of the shared
-#: test fixture (`tests/generated_scenario.py`) and of the architect's D-037
-#: reference measurement, which this attribute set reproduces (T1.5 completion
-#: report): the lane SUMO judges best for the route, at the highest safe speed.
+#: How every generated vehicle enters the network: the lane SUMO judges best for
+#: the route, at the highest safe speed. The shared test fixture's convention
+#: (`tests/generated_scenario.py`), ratified for T1.5 (escalation E4).
 DEPART_ATTRIBUTES: tuple[tuple[str, str], ...] = (("departLane", "best"), ("departSpeed", "max"))
 
 

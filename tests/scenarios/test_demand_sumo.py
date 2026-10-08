@@ -3,9 +3,9 @@
 Every scenario runs `build_routes()`' file through the `sumo` binary for 12 h of
 demand plus a 15-minute drain under the generated four-way's static protected
 plan, at level 0.1: the plan serves it with flat delay on two and three lanes.
-(Level 0.15 does not: on two lanes the 10 s static greens leave delay growing
-from 191 s to 949 s over the run, consistent with `tests/generated_scenario.py`'s
-measured 1762 veh/h capacity against 1971 veh/h of demand.)
+(Level 0.15 does not: on two lanes it offers more than `tests/generated_scenario.py`'s
+measured 1762 veh/h capacity, and with the earlier held-green saturation flow the
+delay already grew from 191 s to 949 s over the run.)
 
 Counting is done in tripinfo, never in the route file: every vehicle scheduled
 before the cutoff must appear there (`analysed_trips`), so a vehicle SUMO
