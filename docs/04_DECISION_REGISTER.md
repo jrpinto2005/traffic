@@ -1124,8 +1124,10 @@ program (the `g` case), not in `<request>`.
 At M1 no scenario declares a permitted pair (point 4), so the matrix is binary in practice, as
 intended. Three reading traps, each verified: bit strings run **right to left** (the last
 character is link 0 — only that reading makes `foes` symmetric); a junction's `<request index>`
-and a traffic light's `linkIndex` are **different numberings** (they disagree on 4 of 16 links of
-the probe and 4 of 20 of `cologne1`); and netconvert **does not honour** `linkIndex` written in a
+and a traffic light's `linkIndex` are **different numberings** — they coincide on every net
+checked (the probe, the reference net, `cologne1`), but nothing guarantees it (a custom
+`linkIndex`, one light over joined junctions), so derive each from its own source and map
+through the connection; and netconvert **does not honour** `linkIndex` written in a
 `.con.xml`, which left the M0 reference program greening crossing movements together for seven
 weeks (`research/M0_reference_scenario.md`, correction). Movement-level entries aggregate their
 links' entries, most restrictive wins.
