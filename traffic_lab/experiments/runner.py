@@ -37,8 +37,12 @@ Timing conventions, stated once because off-by-one errors here are silent:
 from __future__ import annotations
 
 import json
+import multiprocessing
+import sys
 import time
-from collections.abc import Callable, Mapping
+import traceback
+from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -64,6 +68,10 @@ RESULT_FILE = "result.parquet"
 MANIFEST_FILE = "manifest.json"
 TRIPINFO_FILE = "tripinfo.xml"
 WARNING_LOG_FILE = "sumo-warnings.log"
+
+#: What `run_many` writes into the experiment directory.
+EXPERIMENT_FILE = "experiment.parquet"
+FAILURES_FILE = "failures.parquet"
 
 #: The oracle arm's one sensor. An identifier, not a parameter.
 ORACLE_SENSOR = SensorId(0)
@@ -310,3 +318,86 @@ def _write_row(row: Mapping[str, object], path: Path) -> None:
         pl.col(name).cast(pl.Float64) for name, dtype in frame.schema.items() if dtype == pl.Null
     )
     frame.write_parquet(path)
+
+
+def run_many(specs: Sequence[RunSpec], out: Path, *, jobs: int) -> Path:
+    """Run every spec, each in a fresh process, at most `jobs` at a time.
+
+    Returns the path of `out/experiment.parquet`: one row per run that finished,
+    valid or not, in the order of `specs`. Runs that raised are in
+    `out/failures.parquet` (`run_id`, `exception`), always written, empty when
+    nothing failed. One progress line per finished run goes to stderr.
+    """
+    if jobs < 1:
+        raise ValueError(f"jobs must be at least 1, got {jobs}")
+    _require_distinct(specs)
+    out.mkdir(parents=True, exist_ok=True)
+
+    progress = _Progress(total=len(specs))
+    results: dict[str, Path] = {}
+    failures: dict[str, str] = {}
+    with ProcessPoolExecutor(
+        max_workers=jobs,
+        mp_context=multiprocessing.get_context("spawn"),
+        max_tasks_per_child=1,
+    ) as pool:
+        futures: dict[Future[Path], RunSpec] = {pool.submit(run_one, spec): spec for spec in specs}
+        for future in as_completed(futures):
+            run_id = futures[future].run_id
+            try:
+                path = future.result()
+            except Exception as exc:  # recorded, never retried, never dropped
+                failures[run_id] = "".join(traceback.format_exception(exc))
+                progress.report(run_id, "failed")
+                continue
+            results[run_id] = path
+            valid = bool(pl.read_parquet(path, columns=["valid"]).item())
+            progress.report(run_id, "done" if valid else "invalid")
+
+    frames = [pl.read_parquet(results[s.run_id]) for s in specs if s.run_id in results]
+    experiment = (
+        pl.concat(frames, how="diagonal_relaxed")
+        if frames
+        else pl.DataFrame(schema={"run_id": pl.String})
+    )
+    experiment.write_parquet(out / EXPERIMENT_FILE)
+    ordered = [s.run_id for s in specs if s.run_id in failures]
+    pl.DataFrame(
+        {"run_id": ordered, "exception": [failures[r] for r in ordered]},
+        schema={"run_id": pl.String, "exception": pl.String},
+    ).write_parquet(out / FAILURES_FILE)
+    return out / EXPERIMENT_FILE
+
+
+def _require_distinct(specs: Sequence[RunSpec]) -> None:
+    """Two runs sharing an ID or an output directory would share mutable state."""
+    for what, values in (
+        ("run_id", [s.run_id for s in specs]),
+        ("output_dir", [s.output_dir.resolve() for s in specs]),
+    ):
+        seen: set[object] = set()
+        for value in values:
+            if value in seen:
+                raise ValueError(f"two runs share {what} {value}")
+            seen.add(value)
+
+
+class _Progress:
+    """One stderr line per finished run: counts so far and elapsed wall-clock."""
+
+    def __init__(self, total: int) -> None:
+        self._total = total
+        self._started = time.monotonic()
+        self._counts = {"done": 0, "invalid": 0, "failed": 0}
+
+    def report(self, run_id: str, outcome: str) -> None:
+        self._counts[outcome] += 1
+        finished = sum(self._counts.values())
+        counts = self._counts
+        print(
+            f"[{finished}/{self._total}] {outcome} {run_id} | "
+            f"done {counts['done']} invalid {counts['invalid']} failed {counts['failed']} | "
+            f"elapsed {time.monotonic() - self._started:.1f} s",
+            file=sys.stderr,
+            flush=True,
+        )
