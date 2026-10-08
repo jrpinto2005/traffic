@@ -1,7 +1,7 @@
 # Decision Register
 
 **Status:** Living document. Updated before the code that assumes a decision, never after.
-**Version:** 1.7 — see §6 for the change log
+**Version:** 1.8 — see §6 for the change log
 **Governed by:** `02_PROJECT_CHARTER.md`
 
 ---
@@ -77,6 +77,7 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-033](#d-033) | Detections carry lane and stationary time; estimator receives signals | SETTLED | M1 |
 | [D-034](#d-034) | `TrueState` signals decoded from SUMO's display | SETTLED | M1 |
 | [D-035](#d-035) | Trip-level metrics come from SUMO's tripinfo | SETTLED | M1 |
+| [D-036](#d-036) | Stop-line detection zone for gap-based actuation | SETTLED | M1 |
 
 **M1 is fully unblocked.** Every decision it depends on is SETTLED. The three remaining open
 decisions — `D-021` (state estimation), `D-024` (objective function), `D-030` (trace format) —
@@ -1671,10 +1672,39 @@ online controller objective, M6–M7).
 
 ---
 
+<a id="d-036"></a>
+### D-036 — A stop-line detection zone, so a controller can see gaps
+
+**Status:** SETTLED — ratified by owner 2026-10-07 · **Source:** pre-issue review of T1.10
+
+**Problem.** `D-013` requires our actuated controller to be gap-based, but `EstimatedState`
+carries per lane only queue and vehicle counts — nothing about when vehicles arrive or how far
+from the stop line they are. Without it there are no gaps to measure, and the cross-check
+against SUMO's actuated controller would compare two different algorithms.
+
+**Decision.**
+- `Detection` gains `distance_to_stop_m: float | None` — how far the vehicle's front is from
+  the end of its lane — a standard camera output; `None` if the sensor cannot tell.
+- `LaneEstimate` gains `zone_count: float` — vehicles within the lane's detection zone, the last
+  `zone_s × speed_limit_mps` metres before the stop line. `zone_s` is an estimator parameter,
+  **2.0 s by default** to match SUMO's default actuated detector placement, so the cross-check
+  compares like with like (T1.10 verifies that default against SUMO).
+- Our actuated controller gaps out when the served lanes' zones have been empty for longer than
+  its gap time — presence-mode actuation as deployed in the field.
+
+**Rejected.** Queue-based extension (a different algorithm, which empties the cross-check of
+meaning); dropping our actuated controller (loses an M1 exit criterion).
+
+**Revisit trigger.** M3's camera model needs detection-zone coverage that differs from lane
+coverage.
+
+---
+
 ## 6. Change log
 
 | Version | Change |
 | --- | --- |
+| 1.8 | **Pre-issue review of T1.10, 2026-10-07.** `D-036`, ratified by the owner: `D-013`'s gap-based actuated controller had no gap information in `EstimatedState`, so detections gain `distance_to_stop_m` and lane estimates a stop-line `zone_count` (zone length 2.0 s at the speed limit, matching SUMO's default detector placement). Webster found to depend on T1.5's saturation flow; T1.10 sequenced after T1.5. |
 | 1.7 | **Pre-issue review of T1.8, 2026-10-07.** Three owner decisions. `D-035`: trip-level metrics come from SUMO's tripinfo, because `TrueState` cannot see a trip's final values (time loss short by up to 0.12 s, travel time by exactly 1 s, measured). `D-006` amended: primary delay is `timeLoss + departDelay`, because time spent waiting to enter appears in no metric (274 s against 64 s of time loss under oversaturation) and would reward spillback. `D-008`: insertion-loss threshold set at 1 % of vehicles due in the measurement window. |
 | 1.6 | **Pre-issue review of T1.3 and T1.9, 2026-10-07.** `D-023`'s seeding rule **corrected** by the architect on measurement: every SUMO foe pair has a yielding side, so `response` encodes priority, not permissibility; foes now seed `CONFLICTING` and `PERMITTED` comes only from a scenario override. Two decisions ratified by the owner. `D-033`: T1.9 as specified could not produce an exact oracle — detections had no lane, observations no signals, and Δt sampling loses `D-025`'s 1 s halting condition — so detections gain `lane` and `stationary_s`, and the estimator receives signal state from the constraint layer. `D-034`: once a controller drives a light, SUMO reports phase index 0 for good (`online` program), so `TrueState` signals are decoded from the displayed state string through a link order T1.3 produces; truth shows what the lights display, the constraint layer what was committed. |
 | 1.5 | **M0 audit and corrections, 2026-08-18.** An audit of the first-pass M0 write-ups found four defects, each re-verified before correcting. `D-031`'s subscription mandate **amended**: measured ~10× faster on TraCI but ~1.7× *slower* on LibSUMO, the transport intended for all heavy workloads; the invariant (one batched projection per step, no per-object access exposed) is kept, the mechanism becomes transport-specific. T0.3 had argued this away in its own write-up instead of escalating. `D-008` **priority reordered**: insertion loss, not teleporting, is the M1 threat — a demand sweep produced zero teleports while 22% of demand failed to insert. `D-025`: lane-area jam length is a **different measure** from the halting counter (disagreed on 230/600 steps), so the metres metric is reopened. `D-023`: the conflict matrix is seeded from static `<request>` `foes`/`response` plus the `G`/`g` case, **not** from runtime `getLinks()` state as first documented. |
