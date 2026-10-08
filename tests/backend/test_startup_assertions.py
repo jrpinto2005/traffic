@@ -23,7 +23,7 @@ from traffic_lab.backend import (
 )
 
 
-def test_teleporting_enabled_by_magnitude_is_refused() -> None:
+def test_teleporting_enabled_by_magnitude_is_refused(scenario: Scenario) -> None:
     """D-008 assertion 1, in the form the prior art actually gets wrong.
 
     PyTSC sets `time_to_teleport: 10000`, which disables teleporting only until
@@ -37,16 +37,20 @@ def test_teleporting_enabled_by_magnitude_is_refused() -> None:
                 Path("unused.net.xml"),
                 Path("unused.rou.xml"),
                 make_config(time_to_teleport_s=value),
+                network=scenario.network,
             )
 
 
-def test_step_length_that_does_not_divide_the_decision_interval_is_refused() -> None:
+def test_step_length_that_does_not_divide_the_decision_interval_is_refused(
+    scenario: Scenario,
+) -> None:
     """D-020: Δt must be an integer multiple of the SUMO step length."""
     with pytest.raises(BackendStartupError, match="does not divide"):
         SumoBackend().start(
             Path("unused.net.xml"),
             Path("unused.rou.xml"),
             make_config(step_length_s=0.4, decision_interval_s=5.0),
+            network=scenario.network,
         )
 
 
@@ -61,6 +65,7 @@ def test_step_length_that_does_divide_is_accepted(scenario: Scenario) -> None:
         scenario.net,
         scenario.routes,
         make_config(step_length_s=0.5, decision_interval_s=5.0),
+        network=scenario.network,
     )
     backend.close()
 
@@ -69,7 +74,7 @@ def test_snapshot_from_a_different_network_is_refused(scenario: Scenario, tmp_pa
     """D-032: "loading a snapshot against a different network is a hard error"."""
     snapshot = tmp_path / "state.xml"
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         for _ in range(20):
             backend.step()
@@ -93,7 +98,7 @@ def test_snapshot_from_a_different_sumo_version_is_refused(
     """D-032's caveat: "SUMO state files are sensitive to the SUMO version"."""
     snapshot = tmp_path / "state.xml"
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         for _ in range(20):
             backend.step()
@@ -119,7 +124,7 @@ def test_snapshot_without_a_sidecar_is_refused(scenario: Scenario, tmp_path: Pat
     """
     snapshot = tmp_path / "state.xml"
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         for _ in range(20):
             backend.step()
@@ -144,7 +149,9 @@ def test_the_seed_reaches_the_simulator(scenario: Scenario) -> None:
     """
     for seed in (7, 12345):
         backend = SumoBackend()
-        backend.start(scenario.net, scenario.routes, make_config(seed=seed))
+        backend.start(
+            scenario.net, scenario.routes, make_config(seed=seed), network=scenario.network
+        )
         try:
             assert backend._require_started().option("seed") == str(seed)
         finally:
@@ -164,7 +171,7 @@ def test_a_settings_mismatch_reported_by_sumo_is_refused(
 
     monkeypatch.setattr(transport_module._SumoTransport, "option", lambda self, name: "999")
     with pytest.raises(BackendStartupError, match="did not reach the simulator"):
-        SumoBackend().start(scenario.net, scenario.routes, make_config())
+        SumoBackend().start(scenario.net, scenario.routes, make_config(), network=scenario.network)
 
 
 def test_using_the_backend_before_starting_it_is_refused() -> None:

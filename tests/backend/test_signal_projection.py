@@ -22,7 +22,7 @@ from traffic_lab.domain.state import SignalState
 
 def _signals(scenario: Scenario, steps: int) -> list[SignalState]:
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         out = []
         for _ in range(steps):
@@ -86,7 +86,7 @@ def test_an_override_that_shows_no_green_is_a_transition(scenario: Scenario) -> 
     """
     built = scenario.built
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         # Mid-way through the first phase's green.
         for _ in range(int(built.spec.timing.min_green_s / 2)):
@@ -120,7 +120,9 @@ def test_signal_timing_survives_a_snapshot(
     steps = int(scenario.built.static_cycle_s() + scenario.built.spec.timing.min_green_s / 2)
     snapshot = tmp_path / "state.xml"
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         for _ in range(steps):
             backend.step()

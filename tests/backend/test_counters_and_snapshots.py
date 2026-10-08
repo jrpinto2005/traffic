@@ -85,7 +85,9 @@ def test_trip_accounting_matches_sumos_own_tripinfo(scenario: Scenario, tmp_path
     """
     tripinfo = tmp_path / "tripinfo.xml"
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(tripinfo_path=tripinfo))
+    backend.start(
+        scenario.net, scenario.routes, make_config(tripinfo_path=tripinfo), network=scenario.network
+    )
     try:
         for _ in range(600):
             backend.step()
@@ -109,7 +111,7 @@ def test_no_mid_link_arrivals_where_the_scenario_has_no_attrition(scenario: Scen
     a vehicle accelerating in its final unobserved step covers more than v*dt.
     """
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         for _ in range(600):
             backend.step()
@@ -140,8 +142,15 @@ def test_teleports_stay_zero_and_insertion_loss_is_what_fires(
     tripinfo = tmp_path / "tripinfo.xml"
 
     backend = SumoBackend()
-    backend.start(scenario.net, routes, make_config(tripinfo_path=tripinfo))
+    backend.start(
+        scenario.net, routes, make_config(tripinfo_path=tripinfo), network=scenario.network
+    )
     try:
+        # One step of the static program's first phase first: a light that has
+        # never shown a phase has no phase being left to name, and the
+        # projection refuses to guess one (D-034).
+        backend.step()
+        backend.project()
         for _ in range(400):
             backend.apply(scenario.built.intersection_id, scenario.built.all_red)
             backend.step()
@@ -187,7 +196,7 @@ def test_explicit_vehicles_not_yet_due_are_not_insertion_failures(
     routes.write_text(_trickle_routes(scenario.built))
 
     backend = SumoBackend()
-    backend.start(scenario.net, routes, make_config(transport=transport))
+    backend.start(scenario.net, routes, make_config(transport=transport), network=scenario.network)
     try:
         readings = []
         for _ in range(300):
@@ -207,8 +216,13 @@ def test_gridlock_is_detected_after_the_configured_number_of_still_steps(
     routes.write_text(_overload_routes(scenario.built))
 
     backend = SumoBackend()
-    backend.start(scenario.net, routes, make_config(gridlock_steps=30))
+    backend.start(scenario.net, routes, make_config(gridlock_steps=30), network=scenario.network)
     try:
+        # One step of the static program's first phase first: a light that has
+        # never shown a phase has no phase being left to name, and the
+        # projection refuses to guess one (D-034).
+        backend.step()
+        backend.project()
         detected_at = None
         for step in range(400):
             backend.apply(scenario.built.intersection_id, scenario.built.all_red)
@@ -236,7 +250,7 @@ def test_an_empty_network_is_not_gridlocked(scenario: Scenario, tmp_path: Path) 
     routes.write_text('<routes>\n    <vType id="passenger" vClass="passenger"/>\n</routes>\n')
 
     backend = SumoBackend()
-    backend.start(scenario.net, routes, make_config(gridlock_steps=5))
+    backend.start(scenario.net, routes, make_config(gridlock_steps=5), network=scenario.network)
     try:
         for _ in range(50):
             backend.step()
@@ -283,7 +297,9 @@ def test_a_loaded_snapshot_reproduces_the_state_it_was_saved_from(
     """
     snapshot = tmp_path / "state.xml"
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         saved = _run_to(backend, 120)
         backend.save_state(snapshot)
@@ -314,7 +330,7 @@ def test_a_loaded_snapshot_reproduces_the_state_it_was_saved_from(
         assert abs(vehicle.time_loss_s - before.time_loss_s) <= _STATE_FILE_PRECISION_M
 
 
-def _replay(transport: str, net: Path, routes: Path, snapshot: Path, steps: int) -> list[TrueState]:
+def _replay(transport: str, scenario: Scenario, snapshot: Path, steps: int) -> list[TrueState]:
     """Start fresh, load the snapshot immediately, and run.
 
     This is the shape T1.6 will use, and the shape that is deterministic. See
@@ -322,7 +338,9 @@ def _replay(transport: str, net: Path, routes: Path, snapshot: Path, steps: int)
     that the load happens before anything else consumes randomness.
     """
     backend = SumoBackend()
-    backend.start(net, routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         backend.load_state(snapshot)
         states = []
@@ -334,9 +352,9 @@ def _replay(transport: str, net: Path, routes: Path, snapshot: Path, steps: int)
         backend.close()
 
 
-def _produce(net: Path, routes: Path, snapshot: Path) -> None:
+def _produce(scenario: Scenario, snapshot: Path) -> None:
     backend = SumoBackend()
-    backend.start(net, routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         _run_to(backend, 120)
         backend.save_state(snapshot)
@@ -357,10 +375,10 @@ def test_replaying_a_snapshot_is_deterministic(
     from it, which is what makes a neutral-snapshot comparison controlled.
     """
     snapshot = tmp_path / "state.xml"
-    _produce(scenario.net, scenario.routes, snapshot)
+    _produce(scenario, snapshot)
 
-    first = _replay(transport, scenario.net, scenario.routes, snapshot, 40)
-    second = _replay(transport, scenario.net, scenario.routes, snapshot, 40)
+    first = _replay(transport, scenario, snapshot, 40)
+    second = _replay(transport, scenario, snapshot, 40)
 
     assert first == second
     assert len(first[-1].vehicles) > len(scenario.built.movements)
@@ -379,10 +397,10 @@ def test_a_replay_depends_on_the_processs_rng_history_too(
     the arms of a neutral-snapshot comparison are not comparable after all.
     """
     snapshot = tmp_path / "state.xml"
-    _produce(scenario.net, scenario.routes, snapshot)
+    _produce(scenario, snapshot)
 
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config())
+    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
     try:
         backend.load_state(snapshot)
         first = [_run_to(backend, 1) for _ in range(40)]
@@ -407,10 +425,10 @@ def test_save_and_load_do_not_differ_between_transports(scenario: Scenario, tmp_
     and this asserts that the difference stops there.
     """
     snapshot = tmp_path / "state.xml"
-    _produce(scenario.net, scenario.routes, snapshot)
+    _produce(scenario, snapshot)
 
-    over_traci = _replay("traci", scenario.net, scenario.routes, snapshot, 20)
-    over_libsumo = _replay("libsumo", scenario.net, scenario.routes, snapshot, 20)
+    over_traci = _replay("traci", scenario, snapshot, 20)
+    over_libsumo = _replay("libsumo", scenario, snapshot, 20)
 
     assert over_traci == over_libsumo
     assert len(over_traci[-1].vehicles) > len(scenario.built.movements)

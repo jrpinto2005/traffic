@@ -60,6 +60,7 @@ def _drive_and_compare(
         scenario.net,
         scenario.routes,
         make_config(step_length_s=step_length_s, decision_interval_s=sample_every_s),
+        network=scenario.network,
     )
     sensor = OracleSensor(SensorId(0))
     estimator = IdentityEstimator()

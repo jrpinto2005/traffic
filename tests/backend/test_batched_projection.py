@@ -94,7 +94,9 @@ def test_traci_state_reads_per_step_do_not_scale_with_vehicle_count(
     scenario: Scenario, counting_traci: _CountingApi
 ) -> None:
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(transport="traci"))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport="traci"), network=scenario.network
+    )
     try:
         backend.step()
         sparse = backend.project()
@@ -150,7 +152,9 @@ def test_project_performs_exactly_one_batched_fetch(
         monkeypatch.setattr(cls, "fetch", counted)
 
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         for _ in range(20):
             backend.step()

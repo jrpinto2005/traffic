@@ -40,7 +40,13 @@ from traffic_lab.backend.config import (
 )
 from traffic_lab.backend.projection import VEHICLE_CLASS_TO_TYPE, Projector
 from traffic_lab.backend.transport import LibsumoTransport, TraciTransport, Transport
-from traffic_lab.domain.network import IntersectionId, VehicleType
+from traffic_lab.domain.network import (
+    IntersectionId,
+    Network,
+    PhaseId,
+    VehicleType,
+    green_link_indices,
+)
 from traffic_lab.domain.state import TrueState
 
 #: Suffix of the sidecar written beside every snapshot. SUMO's own state file
@@ -75,7 +81,9 @@ class BackendIndex:
 class Backend(Protocol):
     """The `D-002` seam, as `tickets/M1/T1.4_backend_adapter.md` specifies it."""
 
-    def start(self, net: Path, routes: Path, cfg: BackendConfig) -> None: ...
+    def start(self, net: Path, routes: Path, cfg: BackendConfig, *, network: Network) -> None:
+        """Launch SUMO on `net`. `network` is the canonical description of the same
+        net (T1.3), through which the displayed signal state is decoded (D-034)."""
 
     def step(self) -> None: ...
 
@@ -104,7 +112,7 @@ class SumoBackend:
 
     # --- Lifecycle -----------------------------------------------------------
 
-    def start(self, net: Path, routes: Path, cfg: BackendConfig) -> None:
+    def start(self, net: Path, routes: Path, cfg: BackendConfig, *, network: Network) -> None:
         self._assert_teleporting_disabled(cfg)
         self._assert_step_length_divides_decision_interval(cfg)
 
@@ -140,6 +148,8 @@ class SumoBackend:
                 lane_sumo_ids=index.lane_sumo_ids,
                 lane_lengths_m=index.lane_lengths_m,
                 intersection_sumo_ids=intersection_sumo_ids,
+                phase_green_links=_phase_green_links(network, len(intersection_sumo_ids)),
+                start_s=float(transport.option("begin")),
                 vehicle_types=_vehicle_type_map(transport),
                 step_length_s=cfg.step_length_s,
                 gridlock_steps=cfg.gridlock_steps,
@@ -170,9 +180,9 @@ class SumoBackend:
         """Drive one intersection's signal directly, as a red/yellow/green string.
 
         `05_DOMAIN_MODEL.md` §7: "Ours holds green groups; SUMO's holds a
-        per-connection state string. The adapter translates." The translation
-        itself needs the authored phase table, which is T1.3's output and T1.7's
-        to apply; the backend's half is this call.
+        per-connection state string." The string is built from what the
+        constraint layer says the signal must show; `project()` decodes what SUMO
+        then displays back into canonical phases (D-034).
         """
         transport = self._require_started()
         sumo_id = self._intersection_index.get(intersection)
@@ -301,6 +311,27 @@ class SumoBackend:
         if self._projector is None:
             raise BackendStartupError("backend has not been started")
         return self._projector
+
+
+def _phase_green_links(
+    network: Network, n_traffic_lights: int
+) -> tuple[dict[PhaseId, frozenset[int]], ...]:
+    """Each intersection's phase -> green link indices, in `IntersectionId` order.
+
+    `IntersectionId(i)` is the *i*-th traffic light in sorted SUMO-ID order
+    (`05_DOMAIN_MODEL.md` §7), the order `BackendIndex` lists them in, so the
+    network must describe exactly `IntersectionId(0..n-1)`.
+    """
+    by_id = {int(i.id): i for i in network.signalized_intersections}
+    if sorted(by_id) != list(range(n_traffic_lights)):
+        raise BackendStartupError(
+            f"the network's signalized intersections are {sorted(by_id)}, but SUMO runs "
+            f"{n_traffic_lights} traffic lights; `network` does not describe this net"
+        )
+    return tuple(
+        {phase.id: green_link_indices(network, by_id[i].id, phase.id) for phase in by_id[i].phases}
+        for i in range(n_traffic_lights)
+    )
 
 
 def _vehicle_type_map(transport: Transport) -> dict[str, VehicleType]:

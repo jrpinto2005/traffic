@@ -81,6 +81,7 @@ def test_backend_index_follows_the_generator_id_mapping(
         generated.net,
         routes,
         BackendConfig(transport=transport, seed=1, decision_interval_s=1.0, gridlock_steps=100),
+        network=generated.network,
     )
     try:
         assert backend.index.lane_sumo_ids == generated.ids.lanes

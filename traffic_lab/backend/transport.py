@@ -62,11 +62,17 @@ class RawVehicle(NamedTuple):
 
 
 class RawSignal(NamedTuple):
-    """One traffic light's SUMO state for one step, before canonicalisation."""
+    """One traffic light's SUMO state for one step, before canonicalisation.
 
-    phase_index: int
+    Only the displayed red/yellow/green string. SUMO's program phase index and
+    its spent duration are deliberately not read (D-034): once a controller
+    drives a light, SUMO switches it to its `online` program, whose phase index
+    is always 0 and whose spent duration counts from the switch, so neither
+    means anything in a controlled run. The display is decoded into canonical
+    phases by `Projector`.
+    """
+
     ryg_state: str
-    spent_duration_s: float
 
 
 class RawStep(NamedTuple):
@@ -204,9 +210,8 @@ _VEHICLE_VARS = (
     tc.VAR_WAITING_TIME,
 )
 
-#: Per traffic light. `TL_SPENT_DURATION` is what makes `SignalState.phase_started_s`
-#: exact after a snapshot load, where our own bookkeeping would not survive.
-_TLS_VARS = (tc.TL_CURRENT_PHASE, tc.TL_RED_YELLOW_GREEN_STATE, tc.TL_SPENT_DURATION)
+#: Per traffic light: the displayed state string only (D-034).
+_TLS_VARS = (tc.TL_RED_YELLOW_GREEN_STATE,)
 
 #: The validity and accounting counters, in one `simulation.subscribe` call, at
 #: zero per-step cost -- `research/M0_prior_art.md` §9.3 item 3. PyTSC's list also
@@ -302,11 +307,7 @@ class TraciTransport(_SumoTransport):
             )
 
         signals = {
-            tls_id: RawSignal(
-                phase_index=values[tc.TL_CURRENT_PHASE],
-                ryg_state=values[tc.TL_RED_YELLOW_GREEN_STATE],
-                spent_duration_s=values[tc.TL_SPENT_DURATION],
-            )
+            tls_id: RawSignal(ryg_state=values[tc.TL_RED_YELLOW_GREEN_STATE])
             for tls_id, values in signal_results.items()
         }
 
@@ -358,11 +359,7 @@ class LibsumoTransport(_SumoTransport):
 
         trafficlight = libsumo.trafficlight
         signals = {
-            tls_id: RawSignal(
-                phase_index=trafficlight.getPhase(tls_id),
-                ryg_state=trafficlight.getRedYellowGreenState(tls_id),
-                spent_duration_s=trafficlight.getSpentDuration(tls_id),
-            )
+            tls_id: RawSignal(ryg_state=trafficlight.getRedYellowGreenState(tls_id))
             for tls_id in self._tls_ids
         }
 

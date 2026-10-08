@@ -49,6 +49,8 @@ def _make_projector() -> Projector:
         lane_sumo_ids=LANE_IDS,
         lane_lengths_m=LANE_LENGTHS_M,
         intersection_sumo_ids=(),
+        phase_green_links=(),
+        start_s=0.0,
         vehicle_types=dict.fromkeys(("passenger",), VehicleType.CAR),
         step_length_s=STEP_LENGTH_S,
         gridlock_steps=10,
@@ -185,7 +187,9 @@ def test_invariants_hold_on_a_live_run(transport: str, scenario: Scenario) -> No
     per-vehicle while reporting lane totals that do not match.
     """
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(transport=transport))
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport=transport), network=scenario.network
+    )
     try:
         saw_a_queue = False
         for _ in range(400):

@@ -75,12 +75,6 @@ class Built:
         """The display with every controlled link red."""
         return "r" * len(self.intersection.controlled_connections)
 
-    def static_program_phase_count(self) -> int:
-        """SUMO phases in the generated static program: green and yellow per authored
-        phase, plus all-red where `all_red_s > 0` (`generator._program_states`)."""
-        per_phase = 3 if self.spec.timing.all_red_s > 0.0 else 2
-        return per_phase * len(self.spec.phases)
-
     def static_phase_period_s(self) -> float:
         """Green start to the next green start in the static program."""
         timing = self.spec.timing
