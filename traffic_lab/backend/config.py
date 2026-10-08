@@ -78,6 +78,14 @@ class BackendConfig(BaseModel):
         "accounting. When unset the three `--tripinfo-output*` flags are omitted rather "
         "than passed with nothing to write to.",
     )
+    error_log_path: Path | None = Field(
+        default=None,
+        description="Where SUMO writes its warnings and errors (`--error-log`). "
+        "`--no-warnings true` keeps them off the console either way; with this set "
+        "they land in the file instead of nowhere (T1.11 Amendment A2). "
+        "`--no-warnings` alone hid two real defects, so the experiment runner always "
+        "sets it and counts the warnings into the run manifest.",
+    )
 
 
 class BackendStartupError(RuntimeError):
@@ -127,12 +135,17 @@ def launch_argv(sumo_binary: str, net: Path, routes: Path, config: BackendConfig
         "true",
         "--duration-log.disable",
         "true",
+        # Keeps warnings off the console. Without `--error-log` they are lost;
+        # with it, every one lands in the file (verified on 1.27.1, both
+        # transports: the console stays silent and the file has the warning).
         "--no-warnings",
         "true",
         # TraCI otherwise waits for a GUI-style start command.
         "--start",
         "--quit-on-end",
     ]
+    if config.error_log_path is not None:
+        argv += ["--error-log", str(config.error_log_path)]
     if config.tripinfo_path is not None:
         argv += [
             "--tripinfo-output",
@@ -145,6 +158,22 @@ def launch_argv(sumo_binary: str, net: Path, routes: Path, config: BackendConfig
             "true",
         ]
     return argv
+
+
+#: How SUMO 1.27.1 starts every warning line it writes to `--error-log`.
+_WARNING_PREFIX = "Warning:"
+
+
+def count_sumo_warnings(error_log: Path) -> int:
+    """The number of warnings SUMO wrote to `error_log` (`BackendConfig.error_log_path`).
+
+    One per line starting `Warning:`, the form SUMO writes them in. The file
+    must exist: SUMO creates it at start even when nothing is written, so a
+    missing file means the log never reached the simulator, which is not the
+    same fact as zero warnings.
+    """
+    with error_log.open(encoding="utf-8", errors="replace") as lines:
+        return sum(1 for line in lines if line.startswith(_WARNING_PREFIX))
 
 
 def _format_float(value: float) -> str:
