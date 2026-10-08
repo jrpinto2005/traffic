@@ -7,8 +7,9 @@
 What the rest of the project uses from here is deliberately small: a `Backend`
 to drive, a `BackendConfig` to configure it, a `BackendIndex` to relate dense
 canonical IDs back to SUMO's strings, `display_state()` to turn what the
-constraint layer says the signal must show into the string `apply()` takes, and
-two errors. `Projector`, the
+constraint layer says the signal must show into the string `apply()` takes,
+`read_trips()` to parse the run's tripinfo into `TripRecord`s (D-035), and
+three errors. `Projector`, the
 transports and the raw per-step records are internal — exposing them would put a
 per-object query surface within reach of layers that must not have one (D-031).
 """
@@ -28,6 +29,7 @@ from traffic_lab.backend.config import (
     TransportName,
 )
 from traffic_lab.backend.display import display_state
+from traffic_lab.backend.tripinfo import TripinfoError, read_trips
 from traffic_lab.domain.state import HALTING_SPEED_MPS, QUEUE_MIN_HALTING_S
 
 __all__ = [
@@ -41,5 +43,7 @@ __all__ = [
     "SnapshotMismatchError",
     "SumoBackend",
     "TransportName",
+    "TripinfoError",
     "display_state",
+    "read_trips",
 ]

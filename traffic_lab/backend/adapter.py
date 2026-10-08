@@ -26,8 +26,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Protocol
 
 from sumolib import checkBinary
@@ -71,11 +73,19 @@ class BackendIndex:
     This is **not** a per-object query surface: it is static structure resolved
     once at start, it contains no simulation state, and it does not change while
     the run proceeds.
+
+    `vehicle_types` maps each declared SUMO vType ID to its canonical
+    `VehicleType`, through its vClass; types outside the canonical ontology are
+    absent. SUMO's tripinfo names a trip's vType ID, not its class, so this is
+    what `read_trips()` resolves it through -- the same map the projector uses,
+    built once, so `TrueState` and the trip records cannot disagree about a
+    vehicle's type (T1.8 ruling E3).
     """
 
     lane_sumo_ids: tuple[str, ...]
     lane_lengths_m: tuple[float, ...]
     intersection_sumo_ids: tuple[str, ...]
+    vehicle_types: Mapping[str, VehicleType]
 
 
 class Backend(Protocol):
@@ -133,10 +143,13 @@ class SumoBackend:
 
             lane_sumo_ids = transport.lane_ids()
             intersection_sumo_ids = transport.traffic_light_ids()
+            vehicle_types = _vehicle_type_map(transport)
             index = BackendIndex(
                 lane_sumo_ids=lane_sumo_ids,
                 lane_lengths_m=tuple(transport.lane_length_m(lane) for lane in lane_sumo_ids),
                 intersection_sumo_ids=intersection_sumo_ids,
+                # A read-only view of the very dict the projector resolves through.
+                vehicle_types=MappingProxyType(vehicle_types),
             )
             self._index = index
             self._intersection_index = {
@@ -150,7 +163,7 @@ class SumoBackend:
                 intersection_sumo_ids=intersection_sumo_ids,
                 phase_green_links=_phase_green_links(network, len(intersection_sumo_ids)),
                 start_s=float(transport.option("begin")),
-                vehicle_types=_vehicle_type_map(transport),
+                vehicle_types=vehicle_types,
                 step_length_s=cfg.step_length_s,
                 gridlock_steps=cfg.gridlock_steps,
                 max_accel_mps2=_max_accel_mps2(transport),
