@@ -254,15 +254,11 @@ def test_an_overloaded_run_is_in_the_experiment_flagged_invalid(
 
 
 def test_sumo_warnings_are_counted_and_the_console_carries_only_progress(
-    scenario: Scenario,
-    tmp_path: Path,
-    capfd: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
+    scenario: Scenario, tmp_path: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:
     """A3: an out-of-order route file gives `sumo_warnings >= 1` and nothing on the
-    console. `LC_ALL` is pinned for the reason `test_sumo_warning_log.py` gives;
-    spawned workers inherit it."""
-    monkeypatch.setenv("LC_ALL", "C")
+    console, whatever this process's locale -- each run's process sets its own
+    (`traffic_lab.experiments.worker`)."""
     specs = [
         make_spec(
             scenario,
