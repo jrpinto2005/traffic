@@ -53,7 +53,6 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -67,6 +66,10 @@ from traffic_lab.domain.network import (
     SignalizedIntersection,
     conflicting_pair,
 )
+
+# `SignalStage` moved to the domain in T1.14 (the backend needs it too) and is
+# re-exported here so existing imports keep working.
+from traffic_lab.domain.state import SignalStage as SignalStage
 from traffic_lab.domain.state import SignalState
 
 # Simulated seconds. Absorbs binary-floating-point error in accumulated step
@@ -170,19 +173,6 @@ def validate_decision_interval(config: ConstraintLayerConfig, network: Network) 
                 "controller could not express that intersection's shortest legal phase",
                 invariant=9,
             )
-
-
-class SignalStage(StrEnum):
-    """The three stages of the one state machine: GREEN -> YELLOW -> ALL_RED -> GREEN.
-
-    Per D-023, yellow and all-red are **not** phases: they are attributes of a
-    change from one phase to another, executed here, and deliberately outside
-    the action space -- no controller should be able to choose "yellow".
-    """
-
-    GREEN = "green"
-    YELLOW = "yellow"
-    ALL_RED = "all_red"
 
 
 @dataclass(slots=True)

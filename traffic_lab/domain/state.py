@@ -21,6 +21,7 @@ these are reconstructed rather than loaded once.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from traffic_lab.domain.network import IntersectionId, LaneId, PhaseId, VehicleId, VehicleType
 
@@ -61,6 +62,22 @@ class LaneState:
     queue_length_m: float  # secondary, reported from M4
     vehicle_count: int
     mean_speed_mps: float
+
+
+class SignalStage(StrEnum):
+    """The three stages of one signal: GREEN -> YELLOW -> ALL_RED -> GREEN.
+
+    Per D-023, yellow and all-red are **not** phases: they are attributes of a
+    change from one phase to another, executed by the constraint layer, and
+    deliberately outside the action space -- no controller should be able to
+    choose "yellow". Defined here because both sides of the signal display need
+    the word: the constraint layer says which stage the signal is in, and the
+    backend turns a stage into SUMO's state string (D-034).
+    """
+
+    GREEN = "green"
+    YELLOW = "yellow"
+    ALL_RED = "all_red"
 
 
 @dataclass(frozen=True, slots=True)
