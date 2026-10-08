@@ -48,6 +48,9 @@ class BackendConfig(BaseModel):
     )
     seed: int = Field(
         ge=0,
+        # SUMO parses `--seed` as a signed int32 (2**31 rejected, measured on
+        # 1.27.1); out of range fails here, at load, rather than at SUMO start.
+        le=2**31 - 1,
         description="RNG seed passed to SUMO as `--seed`. Asserted to have arrived, because "
         "a seed that looks set and is not invalidates every claim of reproducibility.",
     )

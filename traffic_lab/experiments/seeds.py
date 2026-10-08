@@ -5,9 +5,15 @@ demand, driver, sensor, estimator, policy. Independence between streams is what
 makes ablations interpretable (hold `demand` fixed while varying `sensor` to isolate
 the sensing effect); a single global seed makes that impossible.
 
-Only the `demand` stream has a consumer at T1.1 (T1.5 builds the demand generator).
-All five are still derived and recorded here because the manifest field is per
-D-017 "all of them, always", not per what happens to be wired up yet.
+All five are derived and recorded because the manifest field is per D-017 "all of
+them, always", not per what happens to be wired up yet.
+
+**Every stream seed lies in `[0, SEED_MAX]`.** SUMO and `jtrrouter` parse `--seed`
+as a signed 32-bit integer: 2147483647 is accepted, 2147483648 is rejected as
+"not a valid integer" (measured, SUMO 1.27.1). A stream's seed is therefore the
+first 32-bit word of its `SeedSequence` child's state **shifted right by one
+bit** -- a deterministic function of that child alone, so a stream's seed still
+depends on nothing but the master seed, its replication and its own position.
 """
 
 from __future__ import annotations
@@ -15,6 +21,14 @@ from __future__ import annotations
 import numpy as np
 
 SEED_STREAMS: tuple[str, ...] = ("demand", "driver", "sensor", "estimator", "policy")
+
+#: The largest seed SUMO and `jtrrouter` accept: their `--seed` is a signed int32.
+SEED_MAX = 2**31 - 1
+
+
+def _stream_seed(child: np.random.SeedSequence) -> int:
+    """The first 32-bit word of `child`'s state, shifted right by one: `[0, SEED_MAX]`."""
+    return int(child.generate_state(1, dtype=np.uint32)[0]) >> 1
 
 
 def derive_seeds(master_seed: int) -> dict[str, int]:
@@ -25,7 +39,8 @@ def derive_seeds(master_seed: int) -> dict[str, int]:
     statistically independent child streams from one entropy source. The same
     `master_seed` therefore always derives the same per-stream seeds, on any
     machine, which is what lets D-017's common-random-numbers design and paired
-    comparisons hold across arms and across reruns.
+    comparisons hold across arms and across reruns. Each seed is cut to SUMO's
+    range as the module docstring describes.
 
     Stream order is fixed by `SEED_STREAMS`, so adding a stream in the future
     changes nothing about the seeds already derived for earlier streams.
@@ -33,15 +48,8 @@ def derive_seeds(master_seed: int) -> dict[str, int]:
     parent = np.random.SeedSequence(master_seed)
     children = parent.spawn(len(SEED_STREAMS))
     return {
-        stream: int(child.generate_state(1)[0])
-        for stream, child in zip(SEED_STREAMS, children, strict=True)
+        stream: _stream_seed(child) for stream, child in zip(SEED_STREAMS, children, strict=True)
     }
-
-
-#: SUMO parses `--seed` as a signed 32-bit integer: 2147483647 is accepted and
-#: 2147483648 is "Could not parse commandline options" (measured, SUMO 1.27.1).
-#: Every run seed is therefore kept to 31 bits, so any stream can reach SUMO.
-SEED_MAX = 2**31 - 1
 
 
 def derive_run_seeds(master_seed: int, seed_index: int) -> dict[str, int]:
@@ -55,7 +63,7 @@ def derive_run_seeds(master_seed: int, seed_index: int) -> dict[str, int]:
        spawning the ones before it.
     2. **The streams.** That run's sequence spawns one child per entry of
        `SEED_STREAMS`, in that order; each stream's seed is the first 32-bit
-       word of its child's state with the top bit cleared (`SEED_MAX`).
+       word of its child's state shifted right by one bit (`[0, SEED_MAX]`).
 
     It deliberately takes no controller. The same `(master_seed, seed_index)`
     gives every arm of a comparison the same five streams -- the seed-level half
@@ -69,6 +77,6 @@ def derive_run_seeds(master_seed: int, seed_index: int) -> dict[str, int]:
         )
     run = np.random.SeedSequence(master_seed, spawn_key=(seed_index,))
     return {
-        stream: int(child.generate_state(1, dtype=np.uint32)[0]) & SEED_MAX
+        stream: _stream_seed(child)
         for stream, child in zip(SEED_STREAMS, run.spawn(len(SEED_STREAMS)), strict=True)
     }
