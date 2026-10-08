@@ -4,7 +4,7 @@
 #   git clone --depth 1 https://github.com/Pi-Star-Lab/RESCO.git        RESCO
 #   git clone --depth 1 https://github.com/DaRL-LibSignal/LibSignal.git LibSignal
 #   git clone --depth 1 https://github.com/rbokade/pytsc.git            PyTSC
-sumo-rl/
-RESCO/
-LibSignal/
-PyTSC/
+sumo-rl
+RESCO
+LibSignal
+PyTSC
