@@ -37,8 +37,8 @@ three incompatible definitions that can differ by a factor of two on the same ru
 | --- | --- | --- |
 | **Delay** *(primary metric)* | s | **Time loss plus insertion delay** (`D-006`, amended 2026-10-07). Time loss: realised travel time minus the time the same route would take at the vehicle's desired speed — SUMO's `timeLoss`, including acceleration and deceleration losses. Insertion delay: time spent waiting to enter the network — SUMO's `departDelay`. Both from tripinfo (`D-035`); always also reported separately. |
 | **Travel time** | s | Departure to arrival, where arrival is a boundary sink **or** a mid-link destination (`D-022`). |
-| **Waiting time** | s | Cumulative time with speed below 0.1 m/s. |
-| **Stops** | count | Number of transitions from moving to halting (0.1 m/s threshold), excluding the initial insertion. |
+| **Waiting time** | s | Cumulative time with speed below 0.1 m/s — SUMO's tripinfo `waitingTime`, which leaves out the insertion step (time loss includes it; measured 2026-10-07). |
+| **Stops** | count | Number of times the vehicle halts (0.1 m/s threshold) — SUMO's tripinfo `waitingCount`. **Amended 2026-10-07:** an insertion at standstill counts as a stop when the vehicle is still halted at its first move step; neither tripinfo nor `TrueState` can separate that case, so the earlier "excluding the initial insertion" was unmeasurable. Rare below capacity (0 of 384 insertions at 65 %); 24 of 758 under heavy overload were near-standstill. |
 
 **Secondary, reported where relevant, never as the headline:** stopped delay (waiting time),
 and an HCM-style control delay approximation at intersection level.
