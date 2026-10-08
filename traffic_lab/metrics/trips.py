@@ -16,8 +16,10 @@ Definitions, as pinned by T1.8 Amendment A2:
 * **Total time loss** -- the completed trips' `timeLoss` plus the time loss
   accumulated so far by the vehicles still in the network at window close
   (SS2.3: "the mean alone hides unserved demand").
-* **Approach delay** -- mean time loss of the completed trips, by the edge
-  their departure lane belongs to (SS2.2; A2: "by departure lane's approach").
+* **Approach delay** -- mean primary delay (`timeLoss + departDelay`) of the
+  completed trips, by the edge their departure lane belongs to, with both
+  components beside it (SS2.2 as amended 2026-10-07; A2: "by departure lane's
+  approach"). Insertion delay is the approach's own spillback.
 
 A mean over no trips is `None`, not 0: an empty sample has no mean.
 """
@@ -46,6 +48,15 @@ class InNetwork:
 
 
 @dataclass(frozen=True, slots=True)
+class ApproachDelay:
+    """One approach's mean primary delay over its completed trips, and its parts."""
+
+    delay_s: float  # timeLoss + departDelay
+    time_loss_s: float
+    insertion_delay_s: float
+
+
+@dataclass(frozen=True, slots=True)
 class TripMetrics:
     completed: int  # vehicles; arrived in the window, sink or mid-link
     arrived_at_sink: int  # vehicles; of `completed`
@@ -60,7 +71,7 @@ class TripMetrics:
     mean_waiting_time_s: float | None
     mean_stops: float | None  # stops per vehicle
     total_time_loss_veh_h: float
-    approach_delay_s: Mapping[EdgeId, float]  # mean time loss, by departure edge
+    approach_delay: Mapping[EdgeId, ApproachDelay]  # by departure edge
 
 
 def trip_metrics(
@@ -99,13 +110,23 @@ def trip_metrics(
         mean_waiting_time_s=mean(columns.waiting_time_s),
         mean_stops=mean(columns.stops),
         total_time_loss_veh_h=total_time_loss_s / _SECONDS_PER_HOUR,
-        approach_delay_s=_approach_delay(columns, completed, lane_edge),
+        approach_delay=_approach_delay(columns, completed, lane_edge),
     )
 
 
 def _approach_delay(
     columns: TripColumns, completed: npt.NDArray[np.bool_], lane_edge: Ints
-) -> dict[EdgeId, float]:
+) -> dict[EdgeId, ApproachDelay]:
     edges = lane_edge[columns.depart_lane[completed]]
+    delay = columns.delay_s[completed]
     time_loss = columns.time_loss_s[completed]
-    return {EdgeId(int(edge)): float(time_loss[edges == edge].mean()) for edge in np.unique(edges)}
+    insertion_delay = columns.insertion_delay_s[completed]
+    approaches: dict[EdgeId, ApproachDelay] = {}
+    for edge in np.unique(edges):
+        on_edge = edges == edge
+        approaches[EdgeId(int(edge))] = ApproachDelay(
+            delay_s=float(delay[on_edge].mean()),
+            time_loss_s=float(time_loss[on_edge].mean()),
+            insertion_delay_s=float(insertion_delay[on_edge].mean()),
+        )
+    return approaches

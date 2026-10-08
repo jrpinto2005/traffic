@@ -20,7 +20,7 @@ from tests.backend.conftest import Scenario, make_config
 from tests.generated_scenario import DEMAND_PERIOD_S, OVERLOAD_PERIOD_S, one_flow_per_movement
 from tests.trip_scenarios import Run, mixed_type_flows, run
 from traffic_lab.backend.tripinfo import read_trips
-from traffic_lab.domain.network import VehicleType
+from traffic_lab.domain.network import EdgeId, VehicleType
 from traffic_lab.metrics import (
     AGGREGATE,
     InvalidityCause,
@@ -141,15 +141,21 @@ def test_every_trip_metric_per_vehicle_type(
     assert metrics.mean_stops == pytest.approx(mean("waitingCount"), rel=1e-12)
     assert metrics.throughput_veh_per_h == pytest.approx(n / (WINDOW.duration_s / 3600.0))
 
-    # Approach delay: mean time loss by the edge of the departure lane.
-    by_edge: dict[int, list[float]] = {}
+    # Approach delay (07 SS2.2 as amended): mean primary delay by the edge of the
+    # departure lane, with both components.
+    by_edge: dict[int, list[tuple[float, float]]] = {}
     for e in completed:
         edge = scenario.built.ids.edges.index(e["departLane"].rsplit("_", 1)[0])
-        by_edge.setdefault(edge, []).append(float(e["timeLoss"]))
-    expected = {edge: sum(v) / len(v) for edge, v in by_edge.items()}
-    assert {int(k): v for k, v in metrics.approach_delay_s.items()} == pytest.approx(
-        expected, rel=1e-12
-    )
+        by_edge.setdefault(edge, []).append((float(e["timeLoss"]), float(e["departDelay"])))
+    assert set(metrics.approach_delay) == set(by_edge)
+    for edge, parts in by_edge.items():
+        approach = metrics.approach_delay[EdgeId(edge)]
+        loss = sum(t for t, _ in parts) / len(parts)
+        insertion = sum(d for _, d in parts) / len(parts)
+        assert approach.time_loss_s == pytest.approx(loss, rel=1e-12)
+        assert approach.insertion_delay_s == pytest.approx(insertion, rel=1e-12)
+        assert approach.delay_s == pytest.approx(loss + insertion, rel=1e-12)
+    assert any(a.insertion_delay_s > 0 for a in metrics.approach_delay.values())
 
 
 def test_aggregate_is_the_sum_of_the_types(mixed_result: MetricResult) -> None:
@@ -253,6 +259,13 @@ def test_an_induced_teleport_is_flagged_and_the_run_still_written(
     assert back["teleports"] == 1
     assert back[f"{AGGREGATE}.mean_delay_s"] == mixed_result.aggregate.mean_delay_s
     assert back["motorcycle.completed"] == mixed_result.by_type[VehicleType.MOTORCYCLE].completed
+    edge, approach = next(iter(mixed_result.aggregate.approach_delay.items()))
+    assert back[f"{AGGREGATE}.approach_delay_s.edge_{int(edge)}"] == approach.delay_s
+    assert back[f"{AGGREGATE}.approach_time_loss_s.edge_{int(edge)}"] == approach.time_loss_s
+    assert (
+        back[f"{AGGREGATE}.approach_insertion_delay_s.edge_{int(edge)}"]
+        == approach.insertion_delay_s
+    )
 
 
 def test_an_overloaded_run_is_invalid_by_insertion_loss(scenario: Scenario, tmp_path: Path) -> None:

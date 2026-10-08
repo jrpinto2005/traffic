@@ -95,10 +95,14 @@ class MetricResult:
         groups = {AGGREGATE: self.aggregate} | {str(t): m for t, m in self.by_type.items()}
         for name, metrics in groups.items():
             for field in fields(TripMetrics):
-                if field.name != "approach_delay_s":
+                if field.name != "approach_delay":
                     row[f"{name}.{field.name}"] = getattr(metrics, field.name)
-            for edge, value in sorted(metrics.approach_delay_s.items()):
-                row[f"{name}.approach_delay_s.edge_{int(edge)}"] = value
+            for edge, approach in sorted(metrics.approach_delay.items()):
+                row[f"{name}.approach_delay_s.edge_{int(edge)}"] = approach.delay_s
+                row[f"{name}.approach_time_loss_s.edge_{int(edge)}"] = approach.time_loss_s
+                row[f"{name}.approach_insertion_delay_s.edge_{int(edge)}"] = (
+                    approach.insertion_delay_s
+                )
         for lane, (mean, peak) in enumerate(
             zip(self.queue_mean_veh, self.max_queue_veh, strict=True)
         ):
