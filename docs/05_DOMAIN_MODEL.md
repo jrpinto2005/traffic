@@ -274,6 +274,12 @@ to another, executed by the constraint layer (`D-020`). Modelling them as phases
 them in the action space, and no controller should be able to *choose* "yellow" — it is a
 consequence of switching, not a decision.
 
+They still need a name both sides of the backend seam can use: the constraint layer decides
+which stage a signal is in and the backend turns that into SUMO's state string (`D-034`).
+`SignalStage` (§3.1) is that name. Moved from `control/` into the domain on 2026-10-07, after
+T1.14's builder escalated that the backend may import nothing but the domain (`06_ARCHITECTURE.md`
+§10). It is vocabulary, not an action: requests still name phases only.
+
 ---
 
 ## 3. Dynamic state
@@ -313,6 +319,11 @@ class SignalState:
     phase_started_s: float          # when the phase became active — transition start
     green_started_s: float | None   # when its green began; None while in transition
     in_transition: bool
+
+class SignalStage(StrEnum):         # what a signal shows: a phase green, or a transition
+    GREEN = "green"
+    YELLOW = "yellow"
+    ALL_RED = "all_red"
 
 @dataclass(frozen=True, slots=True)
 class TrueState:
