@@ -98,7 +98,12 @@ class CrashingController(HoldFirst):
 
 class DyingController(HoldFirst):
     """Ends its own process at its first decision at or after `CRASH_AT_S`, without
-    raising: `os._exit(1)`, or SIGSEGV as a stand-in for a segfault inside libsumo."""
+    raising: `os._exit(1)`, or death by a signal as a stand-in for a segfault inside
+    libsumo.
+
+    The signal is SIGKILL, not SIGSEGV: on macOS a SIGSEGV makes the crash reporter
+    open a "Python quit unexpectedly" dialog on every test run. The runner reads the
+    terminating signal generically, so a real segfault is recorded the same way."""
 
     def __init__(self, network: Network, *, how: str) -> None:
         super().__init__(network)
@@ -108,7 +113,7 @@ class DyingController(HoldFirst):
         if now_s >= CRASH_AT_S:
             if self._how == "exit":
                 os._exit(1)
-            os.kill(os.getpid(), signal.SIGSEGV)
+            os.kill(os.getpid(), signal.SIGKILL)
         return super().decide(est, now_s)
 
 

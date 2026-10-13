@@ -219,7 +219,11 @@ def test_a_process_that_exits_fails_only_its_own_run(
 
 
 def test_a_segfaulting_process_fails_only_its_own_run(scenario: Scenario, tmp_path: Path) -> None:
-    """SIGSEGV, as a segfault inside libsumo would end the process."""
+    """Death by a signal, as a segfault inside libsumo would end the process.
+
+    SIGKILL stands in for SIGSEGV so that macOS's crash reporter stays quiet; see
+    `DyingController`.
+    """
     specs = [
         make_spec(scenario, tmp_path / "ok0", hold_first, seed_index=0),
         make_spec(scenario, tmp_path / "segv", segfaults),
@@ -229,7 +233,7 @@ def test_a_segfaulting_process_fails_only_its_own_run(scenario: Scenario, tmp_pa
 
     assert experiment["run_id"].to_list() == ["ok0", "ok1"]
     failures = pl.read_parquet(tmp_path / "experiment" / FAILURES_FILE)
-    assert failures.rows() == [("segv", None, "SIGSEGV", None)]
+    assert failures.rows() == [("segv", None, "SIGKILL", None)]
 
 
 def test_an_overloaded_run_is_in_the_experiment_flagged_invalid(
