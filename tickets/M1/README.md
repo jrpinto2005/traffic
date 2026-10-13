@@ -27,10 +27,10 @@ Update it in the same commit that merges a ticket.
 | T1.13 profiling | ✅ merged 2026-10-13 — implemented by Google Jules (PR #2); profiling harness and baseline report |
 | T1.14 signal display | ✅ merged 2026-10-07 — see the completion record |
 | T1.15 detection zone | ✅ merged 2026-10-07 |
-| T1.16 experiment spec | ⬜ **ready** — unblocked by T1.10 |
+| T1.16 experiment spec | ✅ merged 2026-10-13 — ExperimentSpec, ControllerSpec, sweep expansion & native SUMO arm; see the completion record |
 
-Ready now: T1.6, T1.16. In flight: none. Critical path to the headline figure:
-T1.16.
+Ready now: T1.6. In flight: none. Critical path to the headline figure:
+all baselines, runner, analysis, and sweeps are now merged and operational.
 **Open risk:** the full suite hung once under TraCI for 17 minutes without reproducing.
 
 ## A correction to the roadmap's ticket list
