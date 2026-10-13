@@ -117,6 +117,7 @@ def _record(
             arrival_s = arrival
             travel_time_s = float(attrs["duration"])
             arrival_lane = _lane(attrs["arrivalLane"], lanes, vehicle_id)
+            assert arrival_lane is not None
             reached_end = (
                 float(attrs["arrivalPos"])
                 >= index.lane_lengths_m[arrival_lane] - SINK_POSITION_TOLERANCE_M
@@ -139,7 +140,9 @@ def _record(
     )
 
 
-def _lane(sumo_id: str, lanes: Mapping[str, LaneId], vehicle_id: str) -> LaneId:
+def _lane(sumo_id: str, lanes: Mapping[str, LaneId], vehicle_id: str) -> LaneId | None:
+    if not sumo_id:
+        return None
     lane = lanes.get(sumo_id)
     if lane is None:
         raise TripinfoError(
