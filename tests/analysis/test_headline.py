@@ -1,5 +1,4 @@
-"""Tests for headline figure, results table, and validity report generation.
-"""
+"""Tests for headline figure, results table, and validity report generation."""
 
 from __future__ import annotations
 

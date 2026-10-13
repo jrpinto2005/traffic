@@ -1,5 +1,4 @@
-"""Tests for visualization style module.
-"""
+"""Tests for visualization style module."""
 
 from __future__ import annotations
 
