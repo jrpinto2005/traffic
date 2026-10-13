@@ -17,7 +17,7 @@ Update it in the same commit that merges a ticket.
 | T1.3 network generator | ✅ merged 2026-10-07 — see the completion record, including two findings about the M0 reference scenario |
 | T1.4 backend adapter | ✅ merged 2026-10-07 — audited; one defect fixed; four gaps handed to T1.3, T1.8, T1.9 (see the ticket's completion record) |
 | T1.5 demand | ✅ merged 2026-10-08 — see the completion record |
-| T1.6 snapshots | ⬜ **ready** |
+| T1.6 snapshots | ✅ merged 2026-10-12 — initial-state snapshot keying, production, and loading |
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
 | T1.8 metrics | ✅ merged 2026-10-07 — see the completion record |
 | T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |

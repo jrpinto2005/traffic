@@ -128,14 +128,6 @@ class RunSpec:
             raise ValueError(f"seed_index must be non-negative, got {self.seed_index}")
         if self.step_length_s <= 0.0:
             raise ValueError(f"step_length_s must be positive, got {self.step_length_s}")
-        if self.config.warmup_design != "self":
-            # D-032's neutral snapshot needs T1.6. A run that recorded
-            # "neutral_snapshot" in its manifest after warming up under its own
-            # controller would be a false record, so it is refused.
-            raise ValueError(
-                f"warmup_design={self.config.warmup_design!r} is not supported until T1.6; "
-                f"only 'self' warm-up can be run"
-            )
         # The accumulator needs a state exactly at the window's end, and the
         # loop must stop exactly at the run's end: both are step-grid times.
         for name, boundary_s in (
@@ -235,6 +227,26 @@ def run_one(spec: RunSpec) -> Path:
         start_s=0.0,
     )
     accumulator = MetricAccumulator(spec.window, spec.network)
+    if spec.config.warmup_design == "neutral_snapshot":
+        from traffic_lab.experiments.snapshots import produce, snapshot_key
+
+        net_hash = _file_sha256(spec.net)
+        # Default demand level 1.0 if not otherwise parameterized
+        key = snapshot_key(net_hash, 1.0, seeds["driver"], spec.config.warmup_design)
+        cache_dir = out.parent / ".snapshots"
+        snapshot_path = cache_dir / f"{key}.xml"
+        if not snapshot_path.exists():
+            produce(
+                spec.net,
+                spec.routes,
+                spec.network,
+                spec.config.warmup_s,
+                snapshot_path,
+                step_length_s=spec.step_length_s,
+                seed=seeds["driver"],
+                transport=spec.transport,
+            )
+
     backend = SumoBackend()
     backend.start(
         spec.net,
@@ -251,6 +263,9 @@ def run_one(spec: RunSpec) -> Path:
         network=spec.network,
     )
     try:
+        if spec.config.warmup_design == "neutral_snapshot":
+            backend.load_state(snapshot_path)
+
         last = _step_loop(
             spec,
             backend,
