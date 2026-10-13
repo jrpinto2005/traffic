@@ -1,8 +1,9 @@
 """The `traffic-lab` command-line entry point.
 
-At T1.1 this is a stub: `traffic-lab run <config>` loads and validates a config,
-builds a run manifest, prints it, and exits. It does not simulate — T1.11 adds the
-experiment runner.
+At T1.1: `traffic-lab run <config>` loads and validates a config, builds a run manifest,
+prints it, and exits.
+At T1.13: `traffic-lab profile <config> [--top N]` runs a standard scenario under `cProfile`
+and emits a hot-path report.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pydantic import ValidationError
 
 from traffic_lab.experiments.config import load_config
 from traffic_lab.experiments.manifest import build_manifest, measure_peak_memory_mb
+from traffic_lab.experiments.profile import profile_command
 
 
 def run_command(config_path: Path) -> int:
@@ -48,9 +50,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     run_parser.add_argument("config", type=Path, help="Path to a run config YAML file.")
 
+    profile_parser = subparsers.add_parser(
+        "profile", help="Run a standard scenario under profiler and emit hot-path report."
+    )
+    profile_parser.add_argument("config", type=Path, help="Path to a run config YAML file.")
+    profile_parser.add_argument(
+        "--top", type=int, default=20, help="Number of top hot paths to report (default: 20)."
+    )
+
     args = parser.parse_args(argv)
     if args.command == "run":
         sys.exit(run_command(args.config))
+    elif args.command == "profile":
+        sys.exit(profile_command(args.config, top_n=args.top))
 
 
 if __name__ == "__main__":
