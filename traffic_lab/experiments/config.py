@@ -77,9 +77,15 @@ def compute_config_hash(config: RunConfig) -> str:
     the same hash on any machine and any run, satisfying D-017's manifest
     requirement and the T1.1 acceptance criterion.
     """
-    canonical = json.dumps(
-        config.model_dump(mode="json"),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    return canonical_hash(config.model_dump(mode="json"))
+
+
+def canonical_hash(payload: Any) -> str:
+    """SHA-256 hex digest of `payload`'s canonical JSON: keys sorted, no whitespace.
+
+    `payload` must already be JSON-compatible. `compute_config_hash` is this
+    applied to a `RunConfig`; the experiment runner applies it to a run's whole
+    resolved record (`traffic_lab.experiments.runner`).
+    """
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import resource
 import sys
 import time
 from pathlib import Path
@@ -17,19 +16,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from traffic_lab.experiments.config import load_config
-from traffic_lab.experiments.manifest import build_manifest
-
-
-def _peak_memory_mb() -> float:
-    """Peak resident set size of this process so far, in MB.
-
-    `ru_maxrss` units differ by platform: bytes on macOS/BSD, kibibytes on Linux.
-    `sys.platform` is the only portable way to know which.
-    """
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    if sys.platform == "darwin":
-        return peak / 1e6
-    return peak / 1e3
+from traffic_lab.experiments.manifest import build_manifest, measure_peak_memory_mb
 
 
 def run_command(config_path: Path) -> int:
@@ -45,7 +32,9 @@ def run_command(config_path: Path) -> int:
         return 1
 
     wall_clock_s = time.monotonic() - start
-    manifest = build_manifest(config, wall_clock_s=wall_clock_s, peak_memory_mb=_peak_memory_mb())
+    manifest = build_manifest(
+        config, wall_clock_s=wall_clock_s, peak_memory_mb=measure_peak_memory_mb()
+    )
     print(json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True))
     return 0
 

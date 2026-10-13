@@ -77,3 +77,9 @@ def test_manifest_is_json_serialisable() -> None:
     manifest = build_manifest(CONFIG, wall_clock_s=1.0, peak_memory_mb=10.0)
     dumped = manifest.model_dump(mode="json")
     assert dumped["config_hash"] == manifest.config_hash
+
+
+def test_manifest_records_sumo_warnings_at_zero_before_simulation() -> None:
+    """T1.11 A2: the field is always present; the stub has run no SUMO."""
+    manifest = build_manifest(CONFIG, wall_clock_s=1.0, peak_memory_mb=10.0)
+    assert manifest.sumo_warnings == 0
