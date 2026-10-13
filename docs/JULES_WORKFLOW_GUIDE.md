@@ -18,28 +18,34 @@ Esta guía explica cómo aprovechar tu suscripción de **Google Pro** (Google On
 
 Existen tres formas muy sencillas de enviar trabajo a Jules:
 
-### Método A: Vía GitHub Issues (Recomendado)
-1. Sube o sincroniza tu repositorio con tu cuenta de GitHub.
-2. Asegúrate de instalar la aplicación de **Jules GitHub App** (disponible en [jules.google](https://jules.google)).
-3. Crea un Issue en tu repositorio usando la plantilla **`Jules Implementation Ticket`** (ubicada en `.github/ISSUE_TEMPLATE/jules_ticket.md`).
-4. Añade la etiqueta `jules` al issue (o asígnalo a Jules).
-5. **Jules iniciará sesión automáticamente en la nube**:
-   - Analizará el ticket y el archivo `AGENTS.md`.
-   - Generará un plan de acción para tu aprobación en GitHub.
-   - Escribirá el código, correrá los tests (`pytest`, `ruff`, `mypy`).
-   - Creará un Pull Request con el reporte en formato ASD-STE100.
+### Método A: Despacho Automático desde la Terminal (Recomendado y a costo $0)
+Puedes usar el script del proyecto para validar el ticket y despertar a Jules automáticamente:
 
-### Método B: Vía la Interfaz Web (jules.google)
+```bash
+# Valida y crea el Issue con etiqueta 'jules' en un solo paso:
+python scripts/dispatch_to_jules.py tickets/M1/T1.6_snapshots.md
+
+# O para simular primero sin crear el issue:
+python scripts/dispatch_to_jules.py tickets/M1/T1.6_snapshots.md --dry-run
+```
+
+Este script:
+1. Valida automáticamente que el ticket cumpla las reglas **ASD-STE100** (cero modales ambiguos).
+2. Llama a GitHub CLI (`gh issue create`) con la etiqueta `jules`.
+3. Activa de inmediato a la **Jules GitHub App** en Google Cloud sin costo adicional.
+
+### Método B: Vía GitHub Issues Manualmente
+1. Sube o sincroniza tu repositorio con tu cuenta de GitHub.
+2. Asegúrate de tener instalada la **Jules GitHub App** (en [jules.google](https://jules.google)).
+3. Crea un Issue en tu repositorio usando la plantilla **`Jules Implementation Ticket`** (`.github/ISSUE_TEMPLATE/jules_ticket.md`).
+4. Añade la etiqueta `jules` al issue.
+5. Jules se activará automáticamente en la nube de Google.
+
+### Método C: Vía la Interfaz Web (jules.google)
 1. Entra a **[jules.google](https://jules.google)** con tu cuenta de Google Pro.
 2. Selecciona este repositorio (`traffic`) y la rama de trabajo.
-3. Copia el contenido del ticket (por ejemplo, de `tickets/M1/T1.10_controllers.md`).
+3. Copia el contenido del ticket (por ejemplo, de `tickets/M1/T1.6_snapshots.md`).
 4. Jules procesará el prompt, te mostrará el plan en pantalla y generará el branch y PR correspondiente.
-
-### Método C: Vía CLI Local (@google/jules)
-Si prefieres lanzar tareas desde la terminal de tu Mac:
-```bash
-npx @google/jules run --repo <usuario>/traffic --prompt "Implement ticket T1.10 following AGENTS.md"
-```
 
 ---
 
