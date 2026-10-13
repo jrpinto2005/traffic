@@ -1,9 +1,9 @@
 # Agent Handoff Protocol
 
 **Status:** Active
-**Version:** 1.0
+**Version:** 1.1
 **Governed by:** `02_PROJECT_CHARTER.md` §9
-**Implements:** `D-015` (agent archetypes), `D-031` (efficiency posture), `01_CRITICAL_REVIEW.md` R-4
+**Implements:** `D-015` (agent archetypes), `D-031` (efficiency posture), `D-038` (ASD-STE100 & two-tier reporting), `D-039` (Google Jules cloud execution), `01_CRITICAL_REVIEW.md` R-4
 
 ---
 
@@ -30,6 +30,11 @@ preventing. Prevention is structural:
    returned, not resolved.
 3. **Explicit non-goals per ticket.** An agent with spare capacity will otherwise add
    abstractions nobody asked for.
+4. **ASD-STE100 inter-agent standard & two-tier reporting (`D-038`).** Agents communicate
+   in mathematical, token-efficient Simplified Technical English to eliminate prompt drift.
+   Handoffs to the human owner are translated into clean, transparent Spanish.
+5. **Universal agent interface & cloud execution (`D-039`).** Multi-file tickets can run
+   in cloud-isolated sandboxes via Google Jules using root `AGENTS.md`.
 
 `00_RESEARCH_SPECIFICATION.md` §43 approached delegation as a taxonomy problem and listed
 fourteen subject-matter roles. Taxonomy is not the lever. The lever is that **the ticket
@@ -102,11 +107,11 @@ established.
 A heuristic borrowed from the `gentle-ai` project's "organic routing", evaluated and adopted
 on its own merits after the tool itself was declined for this project:
 
-| Size of the change | Handling |
-| --- | --- |
-| **1–3 files, mechanical, fully understood** | Do it inline. Spawning an agent costs more context than the work does. |
-| **4+ files, or genuine exploration required** | Its own ticket and its own agent, with a frozen contract. |
-| **Needs a durable artifact others will read** | A written finding in `research/`, i.e. a Spike. |
+| Size of the change | Handling | Execution Engine |
+| --- | --- | --- |
+| **1–3 files, mechanical, fully understood** | Do it inline. Spawning an agent costs more context than the work does. | Local checkout / Antigravity subagent |
+| **4+ files, or genuine exploration required** | Its own ticket and its own agent, with a frozen contract. | **Google Jules** (Cloud VM via GitHub issue) or local worktree (`D-039`) |
+| **Needs a durable artifact others will read** | A written finding in `research/`, i.e. a Spike. | **Google Jules** or local Spike agent |
 
 The failure this prevents is not under-delegation; it is **over-delegation**. An agent
 spawned for a two-line change re-derives the context you already had, and the coordination
@@ -148,6 +153,11 @@ should have been returned. This is the single most common way this protocol degr
 
 Every implementation ticket uses this structure. Sections are not optional; an empty section
 means the ticket is not ready.
+
+**Language Standard (`D-038`):** All tickets must be written in **ASD-STE100**. Run
+`python scripts/validate_ste100.py <ticket_path>` before issuing. Avoid ambiguous modal verbs
+("should", "may", "could"), conversational filler, and sentences longer than 20 words for
+instructions or 25 for descriptions.
 
 ```markdown
 # T<milestone>.<n> — <one-line title>
@@ -413,6 +423,20 @@ the blocker.
 under-specified contract was caught before it became a wrong result. Escalation rates should
 be tracked per milestone: a rate near zero usually means agents are guessing, not that the
 contracts are perfect.
+
+### 8.1 Two-Tier Reporting: Owner Delivery in Spanish (`D-038`)
+
+While inter-agent communication remains strictly in ASD-STE100 (English), all final progress
+reports, handoffs, and summaries presented to the **human project owner** must be delivered in
+**Spanish**, structured for maximum clarity and zero ambiguity:
+
+1. **Executive summary:** Clear, accessible, everyday Spanish explaining what was built and why.
+2. **Key architectural changes:** Plain explanation of modified components without cryptic jargon.
+3. **Verification proof:** Explicit test commands and passing results.
+4. **Modified files:** Full list of touched and created files (no omitted details).
+5. **Next step:** Concrete, single-click action for the owner.
+
+See `docs/09_ASD_STE100_AGENT_COMMUNICATION.md` for the full specification.
 
 ---
 
