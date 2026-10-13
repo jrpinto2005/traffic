@@ -79,6 +79,8 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-035](#d-035) | Trip-level metrics come from SUMO's tripinfo | SETTLED | M1 |
 | [D-036](#d-036) | Stop-line detection zone for gap-based actuation | SETTLED | M1 |
 | [D-037](#d-037) | Saturation flow is calibrated in SUMO | SETTLED | M1 |
+| [D-038](#d-038) | Inter-agent communication standard: ASD-STE100 and Two-Tier Reporting | SETTLED | M1 |
+| [D-039](#d-039) | Modern agent architecture: Google Jules cloud execution & AGENTS.md interface | SETTLED | M1 |
 
 **M1 is fully unblocked.** Every decision it depends on is SETTLED. The three remaining open
 decisions — `D-021` (state estimation), `D-024` (objective function), `D-030` (trace format) —
@@ -1760,10 +1762,64 @@ five seeds). The stored values are T1.5's, not the figures in the problem statem
 
 ---
 
+<a id="d-038"></a>
+### D-038 — Inter-agent communication standard: ASD-STE100 and Two-Tier Reporting
+
+**Status:** SETTLED — ratified by owner 2026-10-13 · **Source:** Owner instruction
+
+**Problem.** Autonomous agents communicating in natural English consume excessive context tokens
+and introduce subtle ambiguities. Words like "should" or "consider" invite speculative abstractions
+or silent judgements that violate methodological constraints. Furthermore, technical documentation
+in English creates unnecessary cognitive burden when reporting progress directly to the human project owner.
+
+**Decision.**
+1. **Tier 1 (Agent-to-Agent):** All agent communication (tickets, acceptance criteria, completion
+   reports, PR summaries, commit messages) must strictly follow **ASD-STE100 (Simplified Technical
+   English)**. Core rules: maximum 20 words for instructions, 25 for descriptions; controlled vocabulary
+   with single meanings; active voice and imperative mood; zero ambiguous modal verbs ("should", "may",
+   "could" prohibited; "must" and "can" permitted); maximum 3 nouns in clusters.
+2. **Tier 2 (Agent-to-User):** Final handoffs and status summaries delivered to the human owner must
+   be provided in **Spanish**, formatted for high readability (clear, non-convoluted everyday prose),
+   without omitting critical technical details, test proofs, or modified files.
+3. Automated validation is enforced via `scripts/validate_ste100.py`.
+
+**Rejected.** Free-form natural language prompts between agents (high token cost, high variance);
+English-only user reports (increases cognitive load for owner); simplified reports that omit technical details.
+
+**Revisit trigger.** The owner requests a different language policy.
+
+---
+
+<a id="d-039"></a>
+### D-039 — Modern agent architecture: Google Jules cloud execution & AGENTS.md interface
+
+**Status:** SETTLED — ratified by owner 2026-10-13 · **Source:** Owner instruction
+
+**Problem.** The original delegation workflow ran all subagents in local git worktrees on the host Mac,
+competing for CPU, memory, and filesystem locks. Additionally, subagent configurations were tightly
+coupled to Anthropic Claude tooling (`.claude/agents/`), failing to leverage Google Pro capabilities
+(Gemini Pro / Google Jules).
+
+**Decision.**
+1. Adopt **Google Jules** as the cloud-native autonomous worker for tickets requiring multi-file
+   implementations (Builders) or exploratory investigations (Spikes). Jules executes in Google Cloud
+   sandboxes with zero local machine overhead and delivers clean GitHub Pull Requests.
+2. Maintain root **`AGENTS.md`** as the open, universal contract read natively by Jules, Cursor,
+   and Gemini CLI, enshrining repository invariants, strict typing rules, and ASD-STE100 standards.
+3. Reserve local worktree / subagent execution for fast, interactive changes (1–3 files) or offline work.
+
+**Rejected.** Exclusive reliance on local workstation execution; proprietary vendor locks preventing
+the use of Google Pro / Jules.
+
+**Revisit trigger.** Jules integration model changes upstream in Google Labs.
+
+---
+
 ## 6. Change log
 
 | Version | Change |
 | --- | --- |
+| 1.13 | **Multi-agent modernization & ASD-STE100 standardization, 2026-10-13.** Owner ratified `D-038` (inter-agent communication in ASD-STE100; user-facing reports in clear, exhaustive Spanish) and `D-039` (Google Jules cloud-native execution with `AGENTS.md` open contract). |
 | 1.12 | **T1.11 audit, 2026-10-08.** `D-008`'s gridlock N set by the owner: 1.5 × the longest possible cycle (Σ max green + yellow + all-red), derived per scenario, since a single queued vehicle can legitimately wait almost a cycle while every vehicle is halted. |
 | 1.11 | **`D-037` corrected, 2026-10-08.** The architect's calibration procedure measured boundary insertion capacity (1652 through), not stop-line saturation flow (≈ 1830–1866 through, standing-queue discharge), found by T1.5's builder. The decision to calibrate in SUMO stands — the HCM still overstates turns by 8–14 % — and the procedure is now standing-queue discharge. |
 | 1.10 | **T1.8 audit, 2026-10-07.** `D-008`'s insertion-loss numerator refined, ratified by the owner: vehicles scheduled ≥ 30 s before the window closes and still not inserted, from tripinfo, instead of the pending snapshot at the closing instant, which invalidated healthy short windows on synchronised releases. |
