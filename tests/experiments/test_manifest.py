@@ -83,3 +83,15 @@ def test_manifest_records_sumo_warnings_at_zero_before_simulation() -> None:
     """T1.11 A2: the field is always present; the stub has run no SUMO."""
     manifest = build_manifest(CONFIG, wall_clock_s=1.0, peak_memory_mb=10.0)
     assert manifest.sumo_warnings == 0
+
+
+def test_manifest_records_constraint_outcomes() -> None:
+    """T1.10 Scope 4: per-outcome counters from constraint layer are surfaced in the manifest."""
+    manifest = build_manifest(CONFIG, wall_clock_s=1.0, peak_memory_mb=10.0)
+    assert set(manifest.constraint_outcomes) >= {
+        "granted",
+        "deferred",
+        "held",
+        "forced",
+        "rejected",
+    }

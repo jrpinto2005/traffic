@@ -10,7 +10,7 @@ import resource
 import sys
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from traffic_lab.experiments.config import RunConfig, compute_config_hash
 from traffic_lab.experiments.seeds import derive_seeds
@@ -59,6 +59,9 @@ class RunManifest(BaseModel):
     runner copies counters across by name rather than through a translation
     table in which a typo would drop a counter silently."""
 
+    constraint_outcomes: dict[str, int | float] = Field(default_factory=dict)
+    """D-020, T1.10 Scope 4: per-outcome counters from the constraint layer."""
+
     sumo_warnings: int
     """Warnings SUMO wrote to the run's `--error-log` (T1.11 Amendment A2). Reported,
     not an invalidity cause."""
@@ -90,6 +93,16 @@ def build_manifest(config: RunConfig, *, wall_clock_s: float, peak_memory_mb: fl
         warmup_design=config.warmup_design,
         validity={"teleports": 0, "insertion_failures": 0, "gridlock_detected": False},
         trips={"arrived_at_sink": 0, "arrived_mid_link": 0, "still_in_network": 0},
+        constraint_outcomes={
+            "granted": 0,
+            "deferred": 0,
+            "held": 0,
+            "forced": 0,
+            "rejected": 0,
+            "max_green_overshoot_s": 0.0,
+            "max_green_worst_overshoot_s": 0.0,
+            "overrides_deferred_by_transition": 0,
+        },
         sumo_warnings=0,
         wall_clock_s=wall_clock_s,
         peak_memory_mb=peak_memory_mb,

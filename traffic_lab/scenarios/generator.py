@@ -36,6 +36,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Literal
 from xml.sax.saxutils import quoteattr
 
 import sumolib
@@ -71,7 +72,12 @@ def approach_out_edge(k: int) -> str:
     return f"approach_{k}_out"
 
 
-def build(spec: IntersectionSpec, out_dir: Path) -> tuple[Path, Network]:
+def build(
+    spec: IntersectionSpec,
+    out_dir: Path,
+    *,
+    program: Literal["static", "actuated"] = "static",
+) -> tuple[Path, Network]:
     """Returns (path to the .net.xml, the canonical Network).
 
     Also writes `<stem>.ids.json` (`SumoIds`) beside the net: the SUMO ID of
@@ -83,7 +89,7 @@ def build(spec: IntersectionSpec, out_dir: Path) -> tuple[Path, Network]:
     nodes = out_dir / f"{NET_STEM}.nod.xml"
     edges = out_dir / f"{NET_STEM}.edg.xml"
     connections = out_dir / f"{NET_STEM}.con.xml"
-    program = out_dir / f"{NET_STEM}.tll.xml"
+    program_file = out_dir / f"{NET_STEM}.tll.xml"
     net = out_dir / f"{NET_STEM}.net.xml"
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -100,11 +106,11 @@ def build(spec: IntersectionSpec, out_dir: Path) -> tuple[Path, Network]:
     _write_nodes(nodes, spec)
     _write_edges(edges, spec)
     _write_connections(connections, draft, draft_ids)
-    _write_program(program, draft, draft_ids, spec.timing)
-    _netconvert(net, nodes, edges, connections, program)
+    _write_program(program_file, draft, draft_ids, spec.timing, program=program)
+    _netconvert(net, nodes, edges, connections, program_file)
 
     network, ids = parse_network(net, phases=phases, timing=spec.timing)
-    _check_program_matches_link_order(net, network, len(phases), spec.timing)
+    _check_program_matches_link_order(net, network, len(phases), spec.timing, program=program)
     (out_dir / f"{NET_STEM}{IDS_SUFFIX}").write_text(ids.to_json())
     return net, network
 
@@ -183,7 +189,14 @@ def _program_states(
     return states
 
 
-def _write_program(path: Path, draft: Network, ids: SumoIds, timing: SignalTiming) -> None:
+def _write_program(
+    path: Path,
+    draft: Network,
+    ids: SumoIds,
+    timing: SignalTiming,
+    *,
+    program: Literal["static", "actuated"] = "static",
+) -> None:
     (tls_id,) = ids.intersections
     n_phases = len(draft.signalized_intersections[0].phases)
     lines = [
@@ -194,10 +207,24 @@ def _write_program(path: Path, draft: Network, ids: SumoIds, timing: SignalTimin
         "     States are indexed by the linkIndex read back from a first netconvert pass",
         "     (T1.3 Amendment A1, trap 3). -->",
         "<additional>",
-        f'    <tlLogic id={quoteattr(tls_id)} type="static" programID="0" offset="0">',
+        f'    <tlLogic id={quoteattr(tls_id)} type="{program}" programID="0" offset="0">',
     ]
+    if program == "actuated":
+        lines += [
+            '        <param key="max-gap" value="3.0"/>',
+            '        <param key="detector-gap" value="2.0"/>',
+            '        <param key="passing-time" value="2.0"/>',
+        ]
     for duration_s, state in _program_states(draft, n_phases, timing):
-        lines.append(f'        <phase duration="{_number(duration_s)}" state="{state}"/>')
+        if program == "actuated" and "G" in state:
+            lines.append(
+                f'        <phase duration="{_number(duration_s)}" '
+                f'minDur="{_number(timing.min_green_s)}" '
+                f'maxDur="{_number(timing.max_green_s)}" '
+                f'state="{state}"/>'
+            )
+        else:
+            lines.append(f'        <phase duration="{_number(duration_s)}" state="{state}"/>')
     lines += ["    </tlLogic>", "</additional>"]
     path.write_text("\n".join(lines) + "\n")
 
@@ -254,7 +281,12 @@ def _netconvert(
 
 
 def _check_program_matches_link_order(
-    net: Path, network: Network, n_phases: int, timing: SignalTiming
+    net: Path,
+    network: Network,
+    n_phases: int,
+    timing: SignalTiming,
+    *,
+    program: Literal["static", "actuated"] = "static",
 ) -> None:
     """The final net's program must be the one `green_link_indices()` computes
     from the final net. Fails if netconvert renumbered links between passes, or
@@ -266,6 +298,10 @@ def _check_program_matches_link_order(
             f"{net.name} has {len(programs)} programs for {tls.getID()}, expected 1"
         )
     (loaded,) = programs.values()
+    if loaded.getType() != program:
+        raise NetworkCorrespondenceError(
+            f"{net.name} program type is {loaded.getType()!r}, expected {program!r}"
+        )
     actual = [(float(p.duration), p.state) for p in loaded.getPhases()]
     expected = _program_states(network, n_phases, timing)
     if actual != expected:
@@ -273,3 +309,12 @@ def _check_program_matches_link_order(
             f"the program in {net.name} does not show the authored phases on the built "
             f"net's links:\n  expected {expected}\n  found    {actual}"
         )
+    if program == "actuated":
+        for p in loaded.getPhases():
+            if "G" in p.state and (
+                float(p.minDur) != timing.min_green_s or float(p.maxDur) != timing.max_green_s
+            ):
+                raise NetworkCorrespondenceError(
+                    f"actuated phase {p.state} has minDur={p.minDur}, maxDur={p.maxDur}; "
+                    f"expected {timing.min_green_s}, {timing.max_green_s}"
+                )

@@ -176,3 +176,19 @@ def test_a_netconvert_warning_fails_the_build(tmp_path: Path) -> None:
     edges.write_text('<edges><edge id="e" from="a" to="b" numLanes="1" speed="0"/></edges>\n')
     with pytest.raises(NetconvertError, match="maximum allowed speed of 0"):
         _netconvert(tmp_path / "out.net.xml", nodes, edges)
+
+
+def test_actuated_program_generation(tmp_path: Path) -> None:
+    """T1.10 A4: build(..., program='actuated') creates an actuated tlLogic with min/max green."""
+    net, _ = build(FOUR_WAY, tmp_path, program="actuated")
+    (tl_logic,) = ET.parse(net).getroot().iter("tlLogic")
+    assert tl_logic.get("type") == "actuated"
+    params = {p.get("key"): p.get("value") for p in tl_logic.iter("param")}
+    assert params["max-gap"] == "3.0"
+    assert params["detector-gap"] == "2.0"
+    assert params["passing-time"] == "2.0"
+    for phase in tl_logic.iter("phase"):
+        state = phase.get("state", "")
+        if "G" in state:
+            assert float(phase.get("minDur", "0")) == FOUR_WAY.timing.min_green_s
+            assert float(phase.get("maxDur", "0")) == FOUR_WAY.timing.max_green_s

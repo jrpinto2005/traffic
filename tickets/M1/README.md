@@ -21,16 +21,16 @@ Update it in the same commit that merges a ticket.
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
 | T1.8 metrics | ✅ merged 2026-10-07 — see the completion record |
 | T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |
-| T1.10 controllers | 🚧 issued 2026-10-12, amended contract |
+| T1.10 controllers | ✅ merged 2026-10-13 — Webster, actuated, Max-Pressure baselines & SUMO cross-check; see the completion record |
 | T1.11 runner | ✅ merged 2026-10-12 — the run core; see the completion record |
 | T1.12 analysis | ✅ merged 2026-10-13 — implemented by Google Jules (PR #1); paired comparison, BCa CIs, Holm-Bonferroni, viz style |
 | T1.13 profiling | ✅ merged 2026-10-13 — implemented by Google Jules (PR #2); profiling harness and baseline report |
 | T1.14 signal display | ✅ merged 2026-10-07 — see the completion record |
 | T1.15 detection zone | ✅ merged 2026-10-07 |
-| T1.16 experiment spec | ⬜ blocked on T1.10 — split from T1.11 |
+| T1.16 experiment spec | ⬜ **ready** — unblocked by T1.10 |
 
-Ready now: T1.6. In flight: T1.10. Critical path to the headline figure:
-T1.10 → T1.16.
+Ready now: T1.6, T1.16. In flight: none. Critical path to the headline figure:
+T1.16.
 **Open risk:** the full suite hung once under TraCI for 17 minutes without reproducing.
 
 ## A correction to the roadmap's ticket list
