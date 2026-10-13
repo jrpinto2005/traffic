@@ -241,3 +241,15 @@ def _assert_binomial(successes: int, trials: int, p: float) -> None:
         trials,
         p,
     )
+
+
+def test_uniform_demand_spec_creates_valid_demand(four_way: Built) -> None:
+    """uniform_demand_spec constructs a DemandSpec passing validation."""
+    from traffic_lab.scenarios.demand import uniform_demand_spec, validate_demand
+
+    spec = uniform_demand_spec(four_way.network, 0.25)
+    validate_demand(four_way.network, four_way.ids, spec)
+    assert len(spec.sources) == len(four_way.spec.phases)  # 4 approaches
+    assert len(spec.turn_ratios) == len(four_way.spec.phases)
+    assert all(s.rate_saturation_fraction == 0.25 for s in spec.sources)
+    assert len(spec.sink_edges) == 4

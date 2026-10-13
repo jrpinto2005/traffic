@@ -55,13 +55,13 @@ import math
 import re
 import tempfile
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from xml.sax.saxutils import quoteattr
 
 import numpy as np
 
-from traffic_lab.domain.demand import DemandSpec, SourceSpec
+from traffic_lab.domain.demand import DemandSpec, SourceSpec, TurnRatioSpec
 from traffic_lab.domain.network import (
     Edge,
     EdgeId,
@@ -464,3 +464,59 @@ def _routes_xml(vehicles: list[tuple[dict[str, str], list[str]]]) -> str:
         lines.append("    </vehicle>")
     lines.append("</routes>")
     return "\n".join(lines) + "\n"
+
+
+def uniform_demand_spec(
+    network: Network,
+    demand_level: float,
+    *,
+    split: Mapping[TurnDirection, float] | None = None,
+) -> DemandSpec:
+    """A standard DemandSpec loading all approaches of the network's intersection
+    at `demand_level` (fraction of saturation flow).
+
+    Uses `split` turning ratios (defaulting to Through 60%, Right 25%, Left 15%),
+    filtering and normalizing to the turns actually available on each approach.
+    All edges leaving the junction are designated as sink edges.
+    """
+    (intersection,) = network.signalized_intersections
+    junction = intersection.junction
+    movs = movements_of(network, junction)
+    if split is None:
+        default_split = {
+            TurnDirection.THROUGH: 0.6,
+            TurnDirection.RIGHT: 0.25,
+            TurnDirection.LEFT: 0.15,
+        }
+    else:
+        default_split = dict(split)
+
+    approaches = sorted({m.from_edge for m in movs})
+    turn_ratios = []
+    for edge in approaches:
+        edge_movs = [m for m in movs if m.from_edge == edge]
+        available_turns = {m.turn for m in edge_movs}
+        filtered = {turn: default_split.get(turn, 0.0) for turn in available_turns}
+        total = sum(filtered.values())
+        if total > 0.0:
+            normalized = {t: v / total for t, v in filtered.items()}
+        else:
+            normalized = {t: 1.0 / len(available_turns) for t in available_turns}
+        turn_ratios.append(TurnRatioSpec(junction, edge, normalized))
+
+    sources = tuple(
+        SourceSpec(
+            edge=edge,
+            position_m=None,
+            rate_saturation_fraction=float(demand_level),
+            type_mix={VehicleType.CAR: 1.0},
+        )
+        for edge in approaches
+    )
+    sinks = frozenset(m.to_edge for m in movs)
+    return DemandSpec(
+        sources=sources,
+        turn_ratios=tuple(turn_ratios),
+        attrition=(),
+        sink_edges=sinks,
+    )
