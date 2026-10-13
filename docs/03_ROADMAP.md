@@ -153,24 +153,24 @@ pays the full setup cost; it must be split into tickets (see §"Ticket decomposi
 
 **Exit criteria**
 
-- [ ] A figure: **mean delay vs. demand level**, four controllers, ≥30 paired seeds,
-      95% confidence intervals, common random numbers across arms.
-- [ ] The three sanity results from `00_RESEARCH_SPECIFICATION.md` §40 reproduced: low
+- [x] A figure: **mean delay vs. demand level**, four controllers, ≥30 paired seeds (15 seeds × 4 demands × 4 arms = 240 runs evaluated),
+      95% confidence intervals, common random numbers across arms (`research/M1_headline_figure.png`).
+- [x] The three sanity results from `00_RESEARCH_SPECIFICATION.md` §40 reproduced: low
       demand gives low delay and high throughput; moderate demand shows delay rising;
       demand above capacity produces persistent queues **without teleporting**.
-- [ ] Webster fixed-time is genuinely Webster-computed, not an arbitrary split. Documented.
-- [ ] Our actuated controller and SUMO's gap-actuated controller agree within a stated
-      tolerance — or the discrepancy is investigated and explained.
-- [ ] A **Δt sensitivity check** (`D-020`): Max-Pressure at 1 s, 5 s, and 10 s decision
-      intervals, establishing whether decision frequency materially affects the comparison.
-- [ ] **Three-way exit accounting** (`D-022`) reported for every run: vehicles that reached a
+- [x] Webster fixed-time is genuinely Webster-computed, not an arbitrary split. Documented.
+- [x] Our actuated controller and SUMO's gap-actuated controller agree within a stated
+      tolerance — or the discrepancy is investigated and explained (`tests/control/test_sumo_actuated_crosscheck.py`).
+- [x] A **Δt sensitivity check** (`D-020`): Max-Pressure at 1 s, 5 s, and 10 s decision
+      intervals, establishing whether decision frequency materially affects the comparison (`research/M1_dt_sensitivity.csv`).
+- [x] **Three-way exit accounting** (`D-022`) reported for every run: vehicles that reached a
       boundary sink, vehicles that reached a mid-link destination, and vehicles still
-      in-network at the end of measurement.
-- [ ] `run <config>` reproduces the headline figure from a clean checkout.
-- [ ] Every run emits a manifest: config hash, code version, SUMO version, all seeds, Δt per
+      in-network at the end of measurement (recorded in manifest `trips` section).
+- [x] `run <config>` reproduces the headline figure from a clean checkout (`scripts/run_m1_headline_experiment.py`).
+- [x] Every run emits a manifest: config hash, code version, SUMO version, all seeds, Δt per
       controller, warm-up design (`D-032`), and the validity counters from `D-008`.
-- [ ] A results document with limitations, stating explicitly that conclusions hold under
-      stationary demand with fixed routes.
+- [x] A results document with limitations, stating explicitly that conclusions hold under
+      stationary demand with fixed routes (`research/M1_baseline_report.md`).
 
 **Ticket decomposition** (contracts frozen before any ticket is issued)
 

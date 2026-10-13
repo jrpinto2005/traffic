@@ -12,3 +12,4 @@ spikes/**/out/
 .pytest_cache/
 .claude/
 research/m1_experiment/
+research/m1_dt_experiment/

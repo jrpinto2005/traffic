@@ -70,6 +70,19 @@ Differences evaluated via paired random draws on common seeds with 95% BCa boots
 | 0.45 | sumo_actuated | -28.83 | [-31.26, -26.08] | -23.9% | 0.0000e+00 | YES |
 | 0.45 | max_pressure | -40.10 | [-42.30, -37.32] | -33.3% | 0.0000e+00 | YES |
 
+### Delta-t Sensitivity Analysis for Max-Pressure (D-020)
+
+Evaluated across 15 paired seeds at Δt ∈ {1 s, 5 s, 10 s} (mean delay ± standard deviation):
+
+| Demand Level | Δt = 1.0 s | Δt = 5.0 s (Default) | Δt = 10.0 s |
+| :--- | :---: | :---: | :---: |
+| 0.15 (Light) | 22.38 ± 2.96 s | 22.48 ± 2.75 s | 21.14 ± 2.26 s |
+| 0.25 (Moderate) | 47.74 ± 3.27 s | 47.04 ± 3.69 s | 41.17 ± 2.41 s |
+| 0.35 (Heavy) | 64.72 ± 3.62 s | 63.91 ± 3.20 s | 57.38 ± 3.96 s |
+| 0.45 (Near-capacity) | 81.13 ± 8.38 s | 80.32 ± 7.40 s | 76.05 ± 7.70 s |
+
+**Finding:** Longer decision intervals (Δt = 10.0 s) reduce clearance overhead and phase chattering, yielding 5%–12% lower delays under moderate and heavy traffic. However, across all tested intervals, Max-Pressure substantially outperforms Webster and Actuated, confirming that the ranking is robust to Δt specification.
+
 ## Scientific Findings
 1. **Max-Pressure is the Strongest Baseline:** `Max-Pressure` achieves the lowest vehicle delay across every evaluated demand regime: 22.48 s at 0.15 (-55.6% vs Webster), 47.04 s at 0.25 (-39.8%), 63.91 s at 0.35 (-32.4%), and 80.32 s at 0.45 (-33.3%). All comparisons are statistically significant with p < 1e-15 under Holm-Bonferroni correction.
 2. **Native SUMO Gap-Actuated Consistently Beats Fixed-Time:** `sumo_actuated` outperforms Webster across all demand levels, yielding a 17.5% to 26.5% reduction in mean vehicle delay.
@@ -79,3 +92,4 @@ Differences evaluated via paired random draws on common seeds with 95% BCa boots
 
 ---
 *Report generated automatically by `scripts/run_m1_headline_experiment.py`.*
+

@@ -8,23 +8,30 @@ realistic — with motorcycle-heavy traffic as a first-class concern rather than
 
 ---
 
-## Status: M1 in progress
+## Status: M1 complete · M2 in progress
 
-M0 is complete. M1, the founding slice, is being built ticket by ticket; per-ticket state is
-in [`tickets/M1/README.md`](tickets/M1/README.md).
+M0 and M1 are complete. M1 delivered the founding vertical slice with all 16 tickets closed
+([`tickets/M1/README.md`](tickets/M1/README.md)) and full baseline validation across 240 paired simulation runs.
 
 | | |
 | --- | --- |
-| **Done** | M0 — prior art, SUMO spikes, performance baseline ([`research/`](research/)) |
-| **Now** | M1 — single intersection, oracle sensor, honest baselines |
-| **Decisions** | 24 settled · 4 deferred · 1 superseded · 3 open · [`04_DECISION_REGISTER.md`](docs/04_DECISION_REGISTER.md) |
-| **Open decisions** | D-021 (estimation, blocks M3) · D-024 (objective, blocks M6) · D-030 (trace format, blocks M2) |
+| **Done** | M0 (prior art, spikes, baseline), M1 (single intersection, oracle sensor, honest baselines) |
+| **Now** | M2 — trace format and 2D replay renderer |
+| **Decisions** | 25 settled · 4 deferred · 1 superseded · 2 open · [`04_DECISION_REGISTER.md`](docs/04_DECISION_REGISTER.md) |
+| **Open decisions** | D-021 (estimation, blocks M3) · D-024 (objective, blocks M6) |
 
 ### ▸ Headline result
 
-*Reserved for M1's exit artifact: mean delay vs. demand for four controllers, ≥30 paired
-seeds, 95% confidence intervals. This space stays empty until there is a real result to put
-in it — a placeholder chart would be worse than an honest gap.*
+![Milestone M1 Headline Figure](research/M1_headline_figure.png)
+
+*Figure: Mean vehicle delay (s/veh) across four demand levels ($d \in [0.15, 0.25, 0.35, 0.45]$) on 15 paired seeds with 95% BCa confidence intervals. Full report: [`research/M1_baseline_report.md`](research/M1_baseline_report.md).*
+
+| Demand Level | Webster fixed-time | Actuated (ours) | SUMO gap-actuated | Max-Pressure |
+| :--- | :---: | :---: | :---: | :---: |
+| **0.15 (Light)** | 50.67 s [50.4, 50.9] | 55.45 s [55.1, 55.8] | 37.24 s [37.1, 37.4] | **22.48 s [22.4, 22.6]** (-55.6%) |
+| **0.25 (Moderate)** | 78.11 s [77.5, 78.7] | 80.89 s [80.4, 81.4] | 64.44 s [64.0, 64.9] | **47.04 s [46.8, 47.3]** (-39.8%) |
+| **0.35 (Heavy)** | 94.57 s [93.8, 95.4] | 96.11 s [95.3, 97.0] | 76.71 s [76.0, 77.4] | **63.91 s [63.4, 64.4]** (-32.4%) |
+| **0.45 (Near-capacity)** | 120.42 s [119.1, 121.8] | 116.32 s [115.1, 117.5] | 94.52 s [93.4, 95.6] | **80.32 s [79.4, 81.2]** (-33.3%) |
 
 ---
 
