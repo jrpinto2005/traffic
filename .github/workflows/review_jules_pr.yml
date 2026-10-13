@@ -1,0 +1,137 @@
+name: "Review Jules PR & Quality Gates"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  quality-gates:
+    name: "Enforce Quality Gates & Review PR"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Checkout Code"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: "Install uv"
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: "Set up Python 3.12"
+        run: uv python install 3.12
+
+      - name: "Install Dependencies"
+        run: uv sync
+
+      - name: "Check Code Formatting (ruff format)"
+        id: format_check
+        run: |
+          uv run ruff format --check .
+        continue-on-error: true
+
+      - name: "Check Code Linting (ruff check)"
+        id: lint_check
+        run: |
+          uv run ruff check .
+        continue-on-error: true
+
+      - name: "Check Strict Types (mypy)"
+        id: mypy_check
+        run: |
+          uv run mypy
+        continue-on-error: true
+
+      - name: "Run Tests (pytest)"
+        id: pytest_check
+        run: |
+          uv run pytest
+        continue-on-error: true
+
+      - name: "Validate ASD-STE100 Compliance"
+        id: ste100_check
+        run: |
+          python scripts/validate_ste100.py AGENTS.md .github/ISSUE_TEMPLATE/jules_ticket.md
+        continue-on-error: true
+
+      - name: "Automated Review Feedback"
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          FORMAT_OUTCOME: ${{ steps.format_check.outcome }}
+          LINT_OUTCOME: ${{ steps.lint_check.outcome }}
+          MYPY_OUTCOME: ${{ steps.mypy_check.outcome }}
+          PYTEST_OUTCOME: ${{ steps.pytest_check.outcome }}
+          STE100_OUTCOME: ${{ steps.ste100_check.outcome }}
+        run: |
+          ALL_PASSED=true
+          FAILURES=""
+
+          if [ "$FORMAT_OUTCOME" != "success" ]; then
+            ALL_PASSED=false
+            FAILURES="${FAILURES}\n* ❌ **Code Format (`ruff format --check .`):** Some files require reformatting. Run \`uv run ruff format .\` to fix."
+          fi
+
+          if [ "$LINT_OUTCOME" != "success" ]; then
+            ALL_PASSED=false
+            FAILURES="${FAILURES}\n* ❌ **Linter (`ruff check .`):** Lint violations detected."
+          fi
+
+          if [ "$MYPY_OUTCOME" != "success" ]; then
+            ALL_PASSED=false
+            FAILURES="${FAILURES}\n* ❌ **Type Checker (`mypy`):** Strict type violations detected."
+          fi
+
+          if [ "$PYTEST_OUTCOME" != "success" ]; then
+            ALL_PASSED=false
+            FAILURES="${FAILURES}\n* ❌ **Test Suite (`pytest`):** One or more unit tests failed."
+          fi
+
+          if [ "$STE100_OUTCOME" != "success" ]; then
+            ALL_PASSED=false
+            FAILURES="${FAILURES}\n* ❌ **Language Standard (ASD-STE100):** STE-100 violations detected in agent templates or docs."
+          fi
+
+          if [ "$ALL_PASSED" = "false" ]; then
+            COMMENT_BODY=$(cat <<EOF
+          ## 🔍 Automated Quality Gate Review
+
+          @google-labs-jules Feedback on your changes:
+
+          The automated gate checks reported the following issues:
+          $(echo -e "$FAILURES")
+
+          ### Required Actions
+          Please update your branch with the necessary fixes and push a new commit.
+          Follow the non-negotiable invariants defined in \`AGENTS.md\`.
+          EOF
+          )
+            gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
+            echo "Quality gates failed. Feedback posted on PR."
+            exit 1
+          else
+            COMMENT_BODY=$(cat <<EOF
+          ## ✅ Automated Quality Gate Review: ALL PASSED
+
+          All four required verification commands passed successfully:
+          * ✔️ \`ruff format --check .\` clean
+          * ✔️ \`ruff check .\` clean
+          * ✔️ \`mypy\` strict clean
+          * ✔️ \`pytest\` suite passed
+          * ✔️ ASD-STE100 language check passed
+
+          This Pull Request satisfies the contract and is ready for final review.
+          EOF
+          )
+            gh pr comment "$PR_NUMBER" --body "$COMMENT_BODY"
+            echo "All checks passed! Approval comment posted."
+          fi
