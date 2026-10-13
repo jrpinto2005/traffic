@@ -40,7 +40,7 @@ class RunManifest(BaseModel):
     seeds: dict[str, int]
     """Per-stream seed, per D-017. Keys are `traffic_lab.experiments.seeds.SEED_STREAMS`."""
 
-    decision_interval_s: dict[str, float]
+    decision_interval_s: dict[str, float | None]
     """Per-controller decision interval, per D-020. Empty: no controller schema exists yet."""
 
     warmup_design: Literal["self", "neutral_snapshot"]

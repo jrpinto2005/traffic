@@ -346,4 +346,5 @@ def test_a_spec_is_picklable(scenario: Scenario, tmp_path: Path) -> None:
     spec = make_spec(scenario, tmp_path, functools.partial(CycleFrom, start_s=5.0))
     clone: RunSpec = pickle.loads(pickle.dumps(spec))
     assert clone.run_id == spec.run_id
+    assert clone.controller_factory is not None
     assert clone.controller_factory(clone.network).decision_interval_s == 5.0

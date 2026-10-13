@@ -112,15 +112,20 @@ class RunSpec:
     net: Path
     routes: Path
     network: Network
-    controller_factory: Callable[[Network], Controller]
+    controller_factory: Callable[[Network], Controller] | None = None
     config: RunConfig
     seed_index: int
     transport: TransportName = "libsumo"
     step_length_s: float
     output_dir: Path
+    controller_name: str | None = None
+    demand_level: float | None = None
 
     def __post_init__(self) -> None:
-        controller_identity(self.controller_factory)  # raises if it cannot be recorded
+        if self.controller_factory is not None:
+            controller_identity(self.controller_factory)  # raises if it cannot be recorded
+        elif not self.controller_name:
+            object.__setattr__(self, "controller_name", "sumo_actuated")
         derive_gridlock_steps(self.network, self.step_length_s)  # raises if N is unbounded
         if not self.run_id:
             raise ValueError("run_id must be non-empty")
@@ -224,45 +229,99 @@ def run_one(spec: RunSpec) -> Path:
     tripinfo, warning_log = out / TRIPINFO_FILE, out / WARNING_LOG_FILE
 
     seeds = derive_run_seeds(spec.config.master_seed, spec.seed_index)
-    controller = spec.controller_factory(spec.network)
-    decision_interval_s = controller.decision_interval_s
-    resolved = resolved_run(spec, decision_interval_s)
-    layer = ConstraintLayer(
-        spec.network,
-        ConstraintLayerConfig(
-            decision_interval_s=decision_interval_s, step_length_s=spec.step_length_s
-        ),
-        start_s=0.0,
-    )
-    accumulator = MetricAccumulator(spec.window, spec.network)
-    backend = SumoBackend()
-    backend.start(
-        spec.net,
-        spec.routes,
-        BackendConfig(
-            transport=spec.transport,
-            step_length_s=spec.step_length_s,
-            seed=seeds["driver"],
-            decision_interval_s=decision_interval_s,
-            gridlock_steps=spec.gridlock_steps,
-            tripinfo_path=tripinfo,
-            error_log_path=warning_log,
-        ),
-        network=spec.network,
-    )
-    try:
-        last = _step_loop(
-            spec,
-            backend,
-            layer,
-            OracleSensor(ORACLE_SENSOR, spec.network),
-            IdentityEstimator(spec.network),
-            controller,
-            accumulator,
+    if spec.controller_factory is None:
+        controller_name = spec.controller_name or "sumo_actuated"
+        decision_interval_s = None
+        layer_counters = {
+            "granted": 0,
+            "deferred": 0,
+            "held": 0,
+            "forced": 0,
+            "rejected": 0,
+            "max_green_overshoot_s": 0.0,
+            "max_green_worst_overshoot_s": 0.0,
+            "overrides_deferred_by_transition": 0,
+        }
+        resolved = resolved_run(spec, decision_interval_s)
+        accumulator = MetricAccumulator(spec.window, spec.network)
+        backend = SumoBackend()
+        backend.start(
+            spec.net,
+            spec.routes,
+            BackendConfig(
+                transport=spec.transport,
+                step_length_s=spec.step_length_s,
+                seed=seeds["driver"],
+                decision_interval_s=1.0,
+                gridlock_steps=spec.gridlock_steps,
+                tripinfo_path=tripinfo,
+                error_log_path=warning_log,
+            ),
+            network=spec.network,
         )
-    finally:
-        # SUMO writes tripinfo on close; nothing below may read it before.
-        backend.close()
+        try:
+            state: TrueState | None = None
+            end_s = spec.end_s
+            while state is None or state.time_s < end_s - _TIME_EPS_S:
+                backend.step()
+                state = backend.project()
+                accumulator.accumulate(state)
+            assert state is not None
+            last = state
+        finally:
+            backend.close()
+    else:
+        controller = spec.controller_factory(spec.network)
+        decision_interval_s = controller.decision_interval_s
+        controller_name = (
+            spec.controller_name or controller_identity(spec.controller_factory)["factory"]
+        )
+        resolved = resolved_run(spec, decision_interval_s)
+        layer = ConstraintLayer(
+            spec.network,
+            ConstraintLayerConfig(
+                decision_interval_s=decision_interval_s, step_length_s=spec.step_length_s
+            ),
+            start_s=0.0,
+        )
+        accumulator = MetricAccumulator(spec.window, spec.network)
+        backend = SumoBackend()
+        backend.start(
+            spec.net,
+            spec.routes,
+            BackendConfig(
+                transport=spec.transport,
+                step_length_s=spec.step_length_s,
+                seed=seeds["driver"],
+                decision_interval_s=decision_interval_s,
+                gridlock_steps=spec.gridlock_steps,
+                tripinfo_path=tripinfo,
+                error_log_path=warning_log,
+            ),
+            network=spec.network,
+        )
+        try:
+            last = _step_loop(
+                spec,
+                backend,
+                layer,
+                OracleSensor(ORACLE_SENSOR, spec.network),
+                IdentityEstimator(spec.network),
+                controller,
+                accumulator,
+            )
+        finally:
+            backend.close()
+        layer_counters = {
+            "granted": layer.counters.granted,
+            "deferred": layer.counters.deferred,
+            "held": layer.counters.held,
+            "forced": layer.counters.forced,
+            "rejected": layer.counters.rejected,
+            "max_green_overshoot_s": layer.counters.max_green_overshoot_s,
+            "max_green_worst_overshoot_s": layer.counters.max_green_worst_overshoot_s,
+            "overrides_deferred_by_transition": layer.counters.overrides_deferred_by_transition,
+        }
 
     trips = read_trips(tripinfo, backend.index, end_s=last.time_s)
     result = accumulator.finalize(trips, snapshot_mismatch=False)
@@ -272,6 +331,11 @@ def run_one(spec: RunSpec) -> Path:
 
     row = {
         "run_id": spec.run_id,
+        "controller": controller_name,
+        "dt_s": decision_interval_s,
+        "decision_interval_s": decision_interval_s,
+        "demand_level": spec.demand_level,
+        "seed_index": spec.seed_index,
         **result.to_row(),
         "wall_clock_s": wall_clock_s,
         "peak_memory_mb": peak_memory_mb,
@@ -285,7 +349,7 @@ def run_one(spec: RunSpec) -> Path:
         code_version=get_code_version(),
         sumo_version=get_sumo_version(),
         seeds=seeds,
-        decision_interval_s={resolved["controller"]["factory"]: decision_interval_s},
+        decision_interval_s={controller_name: decision_interval_s},
         warmup_design=spec.config.warmup_design,
         validity={
             "teleports": counters.teleports,
@@ -297,16 +361,7 @@ def run_one(spec: RunSpec) -> Path:
             "arrived_mid_link": counters.arrived_mid_link,
             "still_in_network": counters.still_in_network,
         },
-        constraint_outcomes={
-            "granted": layer.counters.granted,
-            "deferred": layer.counters.deferred,
-            "held": layer.counters.held,
-            "forced": layer.counters.forced,
-            "rejected": layer.counters.rejected,
-            "max_green_overshoot_s": layer.counters.max_green_overshoot_s,
-            "max_green_worst_overshoot_s": layer.counters.max_green_worst_overshoot_s,
-            "overrides_deferred_by_transition": layer.counters.overrides_deferred_by_transition,
-        },
+        constraint_outcomes=layer_counters,
         sumo_warnings=sumo_warnings,
         wall_clock_s=wall_clock_s,
         peak_memory_mb=peak_memory_mb,
@@ -317,7 +372,7 @@ def run_one(spec: RunSpec) -> Path:
     return out / RESULT_FILE
 
 
-def resolved_run(spec: RunSpec, decision_interval_s: float) -> dict[str, Any]:
+def resolved_run(spec: RunSpec, decision_interval_s: float | None) -> dict[str, Any]:
     """Everything that decides what a run does, as JSON values: the manifest's `config`.
 
     Enough to reproduce the run from the manifest alone: the spec's own fields,
@@ -333,7 +388,15 @@ def resolved_run(spec: RunSpec, decision_interval_s: float) -> dict[str, Any]:
         "transport": spec.transport,
         "step_length_s": spec.step_length_s,
         "decision_interval_s": decision_interval_s,
-        "controller": controller_identity(spec.controller_factory),
+        "controller": (
+            controller_identity(spec.controller_factory)
+            if spec.controller_factory is not None
+            else {
+                "factory": spec.controller_name or "sumo_actuated",
+                "args": [],
+                "keywords": {},
+            }
+        ),
         "gridlock_steps": spec.gridlock_steps,
         "net_sha256": _file_sha256(spec.net),
         "routes_sha256": _file_sha256(spec.routes),
