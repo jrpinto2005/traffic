@@ -72,6 +72,12 @@ from traffic_lab.experiments.version import get_code_version, get_sumo_version
 from traffic_lab.experiments.worker import run_in_child
 from traffic_lab.metrics import MeasurementWindow, MetricAccumulator
 from traffic_lab.sensing import OracleSensor, SensorModel
+from traffic_lab.viz.trace import (
+    TRACE_FORMAT_VERSION,
+    TraceHeader,
+    TraceWriter,
+    extract_network_geometry,
+)
 
 #: What every run writes into its `output_dir` (T1.11 Amendment A2).
 RESULT_FILE = "result.parquet"
@@ -243,6 +249,24 @@ def run_one(spec: RunSpec) -> Path:
                 transport=spec.transport,
             )
 
+    trace_writer: TraceWriter | None = None
+    trace_file: str | None = None
+    if spec.config.record_trace:
+        trace_file = "trace.jsonl.gz" if spec.config.trace_compressed else "trace.jsonl"
+        trace_header = TraceHeader(
+            trace_version=TRACE_FORMAT_VERSION,
+            run_id=spec.run_id,
+            step_length_s=spec.step_length_s,
+            geometry=extract_network_geometry(spec.network),
+            measurement_window={
+                "start_s": spec.config.warmup_s,
+                "end_s": spec.config.warmup_s + spec.config.measurement_s,
+            },
+        )
+        trace_writer = TraceWriter(
+            out / trace_file, trace_header, compress=spec.config.trace_compressed
+        )
+
     if spec.controller_factory is None:
         controller_name = spec.controller_name or "sumo_actuated"
         decision_interval_s = None
@@ -282,10 +306,18 @@ def run_one(spec: RunSpec) -> Path:
                 backend.step()
                 state = backend.project()
                 accumulator.accumulate(state)
+                if trace_writer is not None:
+                    trace_writer.write_step(
+                        step=round(state.time_s / spec.step_length_s),
+                        time_s=state.time_s,
+                        state=state,
+                    )
             assert state is not None
             last = state
         finally:
             backend.close()
+            if trace_writer is not None:
+                trace_writer.close()
     else:
         controller = spec.controller_factory(spec.network)
         decision_interval_s = controller.decision_interval_s
@@ -328,9 +360,12 @@ def run_one(spec: RunSpec) -> Path:
                 IdentityEstimator(spec.network),
                 controller,
                 accumulator,
+                trace_writer=trace_writer,
             )
         finally:
             backend.close()
+            if trace_writer is not None:
+                trace_writer.close()
         layer_counters = {
             "granted": layer.counters.granted,
             "deferred": layer.counters.deferred,
@@ -382,6 +417,7 @@ def run_one(spec: RunSpec) -> Path:
         },
         constraint_outcomes=layer_counters,
         sumo_warnings=sumo_warnings,
+        trace_file=trace_file,
         wall_clock_s=wall_clock_s,
         peak_memory_mb=peak_memory_mb,
     )
@@ -465,6 +501,7 @@ def _step_loop(
     estimator: Estimator,
     controller: Controller,
     accumulator: MetricAccumulator,
+    trace_writer: TraceWriter | None = None,
 ) -> TrueState:
     """`06_ARCHITECTURE.md` SS6.2, literally; returns the run's last state."""
     network = spec.network
@@ -485,6 +522,13 @@ def _step_loop(
 
         layer.step(now_s)  # EVERY step: timers, yellow, all-red
         accumulator.accumulate(state)  # EVERY step: cheap appends
+
+        if trace_writer is not None:
+            trace_writer.write_step(
+                step=round(now_s / spec.step_length_s),
+                time_s=now_s,
+                state=state,
+            )
 
         if now_s + _TIME_EPS_S >= next_decision_s:  # EVERY Dt
             obs = sensor.observe(state, now_s)

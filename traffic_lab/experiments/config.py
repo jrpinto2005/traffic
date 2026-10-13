@@ -53,6 +53,16 @@ class RunConfig(BaseModel):
         "('neutral_snapshot', for transient-response experiments).",
     )
 
+    # --- Tracing (D-030) ---
+    record_trace: bool = Field(
+        default=False,
+        description="D-030: Whether to record step-by-step trace for 2D replay.",
+    )
+    trace_compressed: bool = Field(
+        default=True,
+        description="D-030: Whether trace file is gzip-compressed (.jsonl.gz).",
+    )
+
 
 def load_config(path: Path) -> RunConfig:
     """Load and validate a run config from a YAML file.

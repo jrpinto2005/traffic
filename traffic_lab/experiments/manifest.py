@@ -66,6 +66,9 @@ class RunManifest(BaseModel):
     """Warnings SUMO wrote to the run's `--error-log` (T1.11 Amendment A2). Reported,
     not an invalidity cause."""
 
+    trace_file: str | None = None
+    """D-030: Relative path to recorded trace file (.jsonl or .jsonl.gz), if enabled."""
+
     wall_clock_s: float
     """Wall-clock time this invocation took, in seconds."""
 

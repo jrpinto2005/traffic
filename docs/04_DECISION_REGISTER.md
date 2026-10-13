@@ -71,7 +71,7 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-027](#d-027) | RL formulation | DEFERRED | M7 |
 | [D-028](#d-028) | Multi-intersection controller scope | DEFERRED | M5a |
 | [D-029](#d-029) | Pedestrian modelling | DEFERRED | — |
-| [D-030](#d-030) | Trace format | OPEN | M2 |
+| [D-030](#d-030) | Trace format | SETTLED | M2 |
 | [D-031](#d-031) | Efficiency and reuse posture | SETTLED | M1 |
 | [D-032](#d-032) | Initial-state snapshots | SETTLED | M1 |
 | [D-033](#d-033) | Detections carry lane and stationary time; estimator receives signals | SETTLED | M1 |
@@ -82,9 +82,9 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-038](#d-038) | Inter-agent communication standard: ASD-STE100 and Two-Tier Reporting | SETTLED | M1 |
 | [D-039](#d-039) | Modern agent architecture: Google Jules cloud execution & AGENTS.md interface | SETTLED | M1 |
 
-**M1 is fully unblocked.** Every decision it depends on is SETTLED. The three remaining open
-decisions — `D-021` (state estimation), `D-024` (objective function), `D-030` (trace format) —
-block M3, M6, and M2 respectively, and none of them block the founding slice.
+**M1 and M2 are fully unblocked.** D-030 is settled. The two remaining open
+decisions — `D-021` (state estimation) and `D-024` (objective function) —
+block M3 and M6 respectively.
 
 ---
 
@@ -1358,15 +1358,43 @@ constraints in the `D-020` constraint layer. Recorded as a stated limitation.
 ---
 
 <a id="d-030"></a>
-### D-030 — Trace format · **OPEN · blocks M2**
+### D-030 — Trace format · **SETTLED**
 
-Must specify: what is recorded per step, at what rate, in what container (JSONL, Parquet,
-or a binary format), how large a typical run's trace is, and how it is versioned.
+**Status:** SETTLED — formulated and settled for M2
+**Governs:** `traffic_lab/visualization/` and `traffic_lab/experiments/runner.py`
 
-**Fixed requirement regardless of format:** channels for observations, estimated state, and
-controller decisions are specified at M2 even though they are only populated at M3. Adding
-them later would invalidate every earlier trace, and the research overlays are the entire
-justification for building a custom renderer (`01_CRITICAL_REVIEW.md` O-5).
+#### 1. Context and Problem
+M2 requires replaying simulation runs independently from SUMO. The replay renderer
+requires step-by-step positions, signal phases, queues, and research overlay channels.
+
+#### 2. Decision and Specification
+1. **Container Format:** Compressed JSON Lines (`.jsonl.gz`), or raw `.jsonl`.
+   - Streaming write: Simulation appends one JSON object per step.
+   - Zero binary collisions: Avoids PyArrow or native C-library ABI collisions (`D-004`).
+   - Portability: Standalone reader consumes trace without SUMO installed.
+2. **Schema Version:** `trace_version: "1.0"`.
+3. **Trace Structure:**
+   - **Line 0 (Metadata Header):**
+     - `trace_version`: `"1.0"`
+     - `run_id`: string
+     - `step_length_s`: float
+     - `geometry`: static network layout (junction coordinates, lane polylines, lane widths)
+     - `measurement_window`: `{ "start_s": float, "end_s": float }`
+   - **Lines 1..N (Step Frame):**
+     - `step`: integer step index
+     - `time_s`: simulation clock time in seconds
+     - `vehicles`: array of `{ "id": str, "x": float, "y": float, "angle_deg": float, "speed_mps": float, "lane_id": str }`
+     - `signals`: object mapping signal id to `{ "phase_id": int, "state": str }`
+     - `queues`: object mapping lane id to `{ "queue_veh": int, "halting_veh": int }`
+     - `metrics`: aggregated live counters `{ "arrived": int, "in_network": int, "mean_delay_s": float }`
+     - **Reserved Channels (Empty at M2, populated at M3+):**
+       - `observations`: null or object (sensor measurements)
+       - `estimates`: null or object (estimated states)
+       - `decisions`: null or object (controller actions and rationale)
+4. **Execution Overhead Policy:**
+   - Tracing is strictly opt-in (`record_trace: bool = False`).
+   - Batch sweeps record zero traces by default.
+   - Trace writing adds 0% overhead when disabled.
 
 ---
 
