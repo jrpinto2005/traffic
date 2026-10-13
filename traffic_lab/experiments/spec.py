@@ -16,7 +16,6 @@ Per T1.10 A4:
 
 from __future__ import annotations
 
-import enum
 import functools
 import importlib
 import json
@@ -36,18 +35,12 @@ from traffic_lab.domain.network import Network, TurnDirection, VehicleType
 from traffic_lab.experiments.config import RunConfig
 from traffic_lab.experiments.runner import RunSpec, run_many
 from traffic_lab.experiments.seeds import derive_run_seeds
+from traffic_lab.experiments.snapshots import WarmupDesign as WarmupDesign
 from traffic_lab.scenarios.demand import build_routes, uniform_demand_spec
 from traffic_lab.scenarios.generator import IDS_SUFFIX, NET_STEM, build
 from traffic_lab.scenarios.parse import SumoIds
 from traffic_lab.scenarios.saturation import per_lane_saturation_flow_vph
 from traffic_lab.scenarios.spec import IntersectionSpec
-
-
-class WarmupDesign(enum.StrEnum):
-    """Warm-up design (D-032)."""
-
-    SELF = "self"
-    NEUTRAL_SNAPSHOT = "neutral_snapshot"
 
 
 class ControllerSpec(BaseModel):
@@ -176,16 +169,7 @@ class ExperimentSpec(BaseModel):
             raise ValueError(f"n_seeds must be at least 1, got {self.n_seeds}")
         if self.master_seed < 0:
             raise ValueError(f"master_seed must be non-negative, got {self.master_seed}")
-        warmup_str = (
-            self.warmup_design.value
-            if isinstance(self.warmup_design, WarmupDesign)
-            else self.warmup_design
-        )
-        if warmup_str != "self":
-            raise ValueError(
-                f"warmup_design={self.warmup_design!r} is not supported until T1.6; "
-                f"only 'self' warm-up can be run"
-            )
+
         if self.jobs < 0:
             raise ValueError(f"jobs must be non-negative, got {self.jobs}")
 

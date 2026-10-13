@@ -177,13 +177,13 @@ def test_experiment_spec_validation() -> None:
             master_seed=-1,
         )
 
-    # Neutral snapshot refused until T1.6
-    with pytest.raises(ValueError, match=r"T1\.6"):
-        ExperimentSpec(
-            scenario=FOUR_WAY,
-            demand_levels=[0.2],
-            controllers=[ControllerSpec(type="webster")],
-            n_seeds=1,
-            master_seed=0,
-            warmup_design=WarmupDesign.NEUTRAL_SNAPSHOT,
-        )
+    # Neutral snapshot accepted in T1.6
+    spec_neutral = ExperimentSpec(
+        scenario=FOUR_WAY,
+        demand_levels=[0.2],
+        controllers=[ControllerSpec(type="webster")],
+        n_seeds=1,
+        master_seed=0,
+        warmup_design=WarmupDesign.NEUTRAL_SNAPSHOT,
+    )
+    assert spec_neutral.warmup_design == WarmupDesign.NEUTRAL_SNAPSHOT

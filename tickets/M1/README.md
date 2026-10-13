@@ -17,7 +17,7 @@ Update it in the same commit that merges a ticket.
 | T1.3 network generator | ✅ merged 2026-10-07 — see the completion record, including two findings about the M0 reference scenario |
 | T1.4 backend adapter | ✅ merged 2026-10-07 — audited; one defect fixed; four gaps handed to T1.3, T1.8, T1.9 (see the ticket's completion record) |
 | T1.5 demand | ✅ merged 2026-10-08 — see the completion record |
-| T1.6 snapshots | ⬜ **ready** |
+| T1.6 snapshots | ✅ merged 2026-10-13 — initial-state snapshots; keying, produce, load_into; see completion record |
 | T1.7 constraint layer | ✅ merged 2026-08-24 |
 | T1.8 metrics | ✅ merged 2026-10-07 — see the completion record |
 | T1.9 sensing, oracle | ✅ merged 2026-10-07 — exact oracle against the real simulator; see the completion record |
@@ -29,8 +29,7 @@ Update it in the same commit that merges a ticket.
 | T1.15 detection zone | ✅ merged 2026-10-07 |
 | T1.16 experiment spec | ✅ merged 2026-10-13 — ExperimentSpec, ControllerSpec, sweep expansion & native SUMO arm; see the completion record |
 
-Ready now: T1.6. In flight: none. Critical path to the headline figure:
-all baselines, runner, analysis, and sweeps are now merged and operational.
+All M1 tickets (T1.1 through T1.16) are merged and complete. M1 headline baseline experiment and report are ready.
 **Open risk:** the full suite hung once under TraCI for 17 minutes without reproducing.
 
 ## A correction to the roadmap's ticket list

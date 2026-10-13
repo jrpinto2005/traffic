@@ -133,14 +133,8 @@ class RunSpec:
             raise ValueError(f"seed_index must be non-negative, got {self.seed_index}")
         if self.step_length_s <= 0.0:
             raise ValueError(f"step_length_s must be positive, got {self.step_length_s}")
-        if self.config.warmup_design != "self":
-            # D-032's neutral snapshot needs T1.6. A run that recorded
-            # "neutral_snapshot" in its manifest after warming up under its own
-            # controller would be a false record, so it is refused.
-            raise ValueError(
-                f"warmup_design={self.config.warmup_design!r} is not supported until T1.6; "
-                f"only 'self' warm-up can be run"
-            )
+        if self.config.warmup_design not in ("self", "neutral_snapshot"):
+            raise ValueError(f"unsupported warmup_design={self.config.warmup_design!r}")
         # The accumulator needs a state exactly at the window's end, and the
         # loop must stop exactly at the run's end: both are step-grid times.
         for name, boundary_s in (
@@ -229,6 +223,26 @@ def run_one(spec: RunSpec) -> Path:
     tripinfo, warning_log = out / TRIPINFO_FILE, out / WARNING_LOG_FILE
 
     seeds = derive_run_seeds(spec.config.master_seed, spec.seed_index)
+    if spec.config.warmup_design == "neutral_snapshot":
+        from traffic_lab.experiments.snapshots import load_into, produce, snapshot_key
+
+        net_hash = _file_sha256(spec.net)
+        demand_level = spec.demand_level if spec.demand_level is not None else 1.0
+        key = snapshot_key(net_hash, demand_level, seeds["driver"], spec.config.warmup_design)
+        cache_dir = out.parent / ".snapshots"
+        snapshot_path = cache_dir / f"{key}.xml"
+        if not snapshot_path.exists():
+            produce(
+                spec.net,
+                spec.routes,
+                spec.network,
+                spec.config.warmup_s,
+                snapshot_path,
+                step_length_s=spec.step_length_s,
+                seed=seeds["driver"],
+                transport=spec.transport,
+            )
+
     if spec.controller_factory is None:
         controller_name = spec.controller_name or "sumo_actuated"
         decision_interval_s = None
@@ -260,6 +274,8 @@ def run_one(spec: RunSpec) -> Path:
             network=spec.network,
         )
         try:
+            if spec.config.warmup_design == "neutral_snapshot":
+                load_into(backend, snapshot_path)
             state: TrueState | None = None
             end_s = spec.end_s
             while state is None or state.time_s < end_s - _TIME_EPS_S:
@@ -277,12 +293,13 @@ def run_one(spec: RunSpec) -> Path:
             spec.controller_name or controller_identity(spec.controller_factory)["factory"]
         )
         resolved = resolved_run(spec, decision_interval_s)
+        start_s = spec.config.warmup_s if spec.config.warmup_design == "neutral_snapshot" else 0.0
         layer = ConstraintLayer(
             spec.network,
             ConstraintLayerConfig(
                 decision_interval_s=decision_interval_s, step_length_s=spec.step_length_s
             ),
-            start_s=0.0,
+            start_s=start_s,
         )
         accumulator = MetricAccumulator(spec.window, spec.network)
         backend = SumoBackend()
@@ -301,6 +318,8 @@ def run_one(spec: RunSpec) -> Path:
             network=spec.network,
         )
         try:
+            if spec.config.warmup_design == "neutral_snapshot":
+                load_into(backend, snapshot_path)
             last = _step_loop(
                 spec,
                 backend,
@@ -454,8 +473,9 @@ def _step_loop(
     shown: dict[IntersectionId, tuple[SignalStage, PhaseId | None]] = {}
 
     _apply_display_changes(backend, layer, network, intersections, shown)
+    start_s = spec.config.warmup_s if spec.config.warmup_design == "neutral_snapshot" else 0.0
     decisions = 1
-    next_decision_s = decisions * decision_interval_s
+    next_decision_s = start_s + decisions * decision_interval_s
     state: TrueState | None = None
     end_s = spec.end_s
     while state is None or state.time_s < end_s - _TIME_EPS_S:

@@ -337,9 +337,11 @@ def test_phase_boundaries_must_fall_on_the_step_grid(
     make_spec(scenario, tmp_path, hold_first, config=_config(**overrides), step_length_s=0.25)
 
 
-def test_neutral_snapshot_warmup_is_refused_until_t1_6(scenario: Scenario, tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match=r"T1\.6"):
-        make_spec(scenario, tmp_path, hold_first, config=_config(warmup_design="neutral_snapshot"))
+def test_neutral_snapshot_warmup_is_accepted(scenario: Scenario, tmp_path: Path) -> None:
+    spec = make_spec(
+        scenario, tmp_path, hold_first, config=_config(warmup_design="neutral_snapshot")
+    )
+    assert spec.config.warmup_design == "neutral_snapshot"
 
 
 def test_a_spec_is_picklable(scenario: Scenario, tmp_path: Path) -> None:
