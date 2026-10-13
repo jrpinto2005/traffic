@@ -39,12 +39,15 @@ def test_snapshot_production_and_loading_yields_identical_truestate(
         output_path=snapshot,
         step_length_s=1.0,
         seed=42,
+        transport="traci",
     )
     assert snapshot.exists()
     assert snapshot.with_name(f"{snapshot.name}.manifest.json").exists()
 
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport="traci"), network=scenario.network
+    )
     try:
         load_into(backend, snapshot)
         loaded_state = backend.project()
@@ -61,6 +64,7 @@ def test_loading_snapshot_with_mismatched_network_fails(scenario: Scenario, tmp_
         scenario.network,
         warmup_s=30.0,
         output_path=snapshot,
+        transport="traci",
     )
 
     sidecar = snapshot.with_name(f"{snapshot.name}.manifest.json")
@@ -68,7 +72,9 @@ def test_loading_snapshot_with_mismatched_network_fails(scenario: Scenario, tmp_
     sidecar.write_text(content)
 
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport="traci"), network=scenario.network
+    )
     try:
         with pytest.raises(SnapshotMismatchError, match="network sha256="):
             load_into(backend, snapshot)
@@ -86,6 +92,7 @@ def test_loading_snapshot_with_mismatched_sumo_version_fails(
         scenario.network,
         warmup_s=30.0,
         output_path=snapshot,
+        transport="traci",
     )
 
     sidecar = snapshot.with_name(f"{snapshot.name}.manifest.json")
@@ -96,7 +103,9 @@ def test_loading_snapshot_with_mismatched_sumo_version_fails(
     sidecar.write_text(json.dumps(data))
 
     backend = SumoBackend()
-    backend.start(scenario.net, scenario.routes, make_config(), network=scenario.network)
+    backend.start(
+        scenario.net, scenario.routes, make_config(transport="traci"), network=scenario.network
+    )
     try:
         with pytest.raises(SnapshotMismatchError, match="version-sensitive"):
             load_into(backend, snapshot)
