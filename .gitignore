@@ -11,3 +11,4 @@ spikes/**/out/
 .mypy_cache/
 .pytest_cache/
 .claude/
+research/m1_experiment/

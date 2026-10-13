@@ -38,7 +38,12 @@ def generate_headline_figure(
     apply_style()
 
     if metric not in df.columns:
-        raise ValueError(f"Metric column '{metric}' missing from DataFrame")
+        if "all.mean_delay_s" in df.columns:
+            metric = "all.mean_delay_s"
+        elif "all.delay_s" in df.columns:
+            metric = "all.delay_s"
+        else:
+            raise ValueError(f"Metric column '{metric}' missing from DataFrame")
     if demand_col not in df.columns:
         raise ValueError(f"Demand column '{demand_col}' missing from DataFrame")
     if arm_col not in df.columns:
@@ -133,11 +138,21 @@ def generate_results_table(
     demand_col: str = "demand_level",
     arm_col: str = "controller",
 ) -> pl.DataFrame:
-    """Produce results table per arm and demand level: metric, CI, n, and completion rate."""
-    rows: list[dict[str, object]] = []
+    if metric not in df.columns:
+        if "all.mean_delay_s" in df.columns:
+            metric = "all.mean_delay_s"
+        elif "all.delay_s" in df.columns:
+            metric = "all.delay_s"
+
+    if completion_col not in df.columns:
+        if "all.completion_rate" in df.columns:
+            completion_col = "all.completion_rate"
+        elif "all.trip_completion_rate" in df.columns:
+            completion_col = "all.trip_completion_rate"
 
     demands = sorted(df[demand_col].unique().to_list())
     arms = sorted(df[arm_col].unique().to_list())
+    rows: list[dict[str, object]] = []
 
     for d in demands:
         sub_d = df.filter(pl.col(demand_col) == d)
