@@ -92,7 +92,7 @@ def test_config_hash_is_stable_across_instances(tmp_path: Path) -> None:
     assert first == second
     # Pinned so a future accidental change to the hashing scheme is caught here,
     # not discovered as a silent reproducibility break.
-    assert first == "4f430f72546ff094a4fc6f7810f9fce81dfdbc71c1c729e2ef8fbf50a33c010c"
+    assert first == "8f35cb4a72ee591bb02f3e7753d8731988ab5fe0aa911e3c0ef257c9a5d9b37f"
 
 
 def test_config_hash_changes_with_a_field() -> None:

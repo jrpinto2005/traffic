@@ -225,13 +225,13 @@ possible — which is also the mechanism that decouples the renderer from the si
 
 **Exit criteria**
 
-- [ ] Any M1 experiment run can be replayed from its trace file.
-- [ ] The renderer runs with the simulator not installed, from a trace file alone.
-- [ ] Batch mode confirmed to produce no renderer dependency and no trace overhead when
-      the flag is off.
-- [ ] A recording of a congested run is embedded in the README.
-- [ ] Trace format is versioned and documented, with the observation/estimate/decision
-      channels specified even though unused.
+- [x] Any M1 experiment run can be replayed from its trace file (`traffic_lab/viz/trace.py`).
+- [x] The renderer runs with the simulator not installed, from a trace file alone (`traffic_lab/viz/renderer.py`).
+- [x] Batch mode confirmed to produce no renderer dependency and no trace overhead when
+      the flag is off (`record_trace=False` default).
+- [x] A recording of a congested run is embedded in the README (`research/M2_congested_run.gif`).
+- [x] Trace format is versioned and documented, with the observation/estimate/decision
+      channels specified even though unused (`D-030`, `traffic_lab/viz/trace.py`).
 
 **Non-goals:** no live rendering, no interactive intervention, no 3D, no web deployment.
 

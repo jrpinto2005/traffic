@@ -10,10 +10,10 @@ the SUMO microsimulator (`D-009`, `D-030`) and produces rich research overlays.
 | Ticket | State | Description |
 | --- | --- | --- |
 | T2.1 trace recorder | ✅ merged 2026-10-13 | Trace schema, streaming writer, opt-in runner flag (`D-030`) |
-| T2.2 trace reader | ⏳ ready | Trace deserializer, integrity validator, standalone loading |
-| T2.3 2D replay engine | ⏳ ready | Headless/offline renderer decoupled from SUMO |
-| T2.4 research overlays | ⏳ ready | Signal displays, queues, vehicle telemetry, live metrics HUD |
-| T2.5 export & artifact | ⏳ ready | MP4/GIF export and congested run artifact for README |
+| T2.2 trace reader | ✅ merged 2026-10-13 | Trace deserializer, integrity validator, standalone loading |
+| T2.3 2D replay engine | ✅ merged 2026-10-13 | Headless/offline renderer decoupled from SUMO |
+| T2.4 research overlays | ✅ merged 2026-10-13 | Signal displays, queues, vehicle telemetry, live metrics HUD |
+| T2.5 export & artifact | ✅ merged 2026-10-13 | MP4/GIF export and congested run artifact for README |
 
 ## Dependency Order
 

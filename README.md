@@ -8,15 +8,16 @@ realistic — with motorcycle-heavy traffic as a first-class concern rather than
 
 ---
 
-## Status: M1 complete · M2 in progress
+## Status: M2 complete · M3 in progress
 
-M0 and M1 are complete. M1 delivered the founding vertical slice with all 16 tickets closed
-([`tickets/M1/README.md`](tickets/M1/README.md)) and full baseline validation across 240 paired simulation runs.
+M0, M1, and M2 are complete. M1 delivered the founding vertical slice with all 16 tickets closed
+([`tickets/M1/README.md`](tickets/M1/README.md)). M2 delivered the trace format and 2D replay renderer
+with research overlays ([`tickets/M2/README.md`](tickets/M2/README.md)).
 
 | | |
 | --- | --- |
-| **Done** | M0 (prior art, spikes, baseline), M1 (single intersection, oracle sensor, honest baselines) |
-| **Now** | M2 — trace format and 2D replay renderer |
+| **Done** | M0 (prior art, spikes), M1 (single intersection, baselines), M2 (trace format & 2D replay) |
+| **Now** | M3 — imperfect observation and sensing–control gap |
 | **Decisions** | 25 settled · 4 deferred · 1 superseded · 2 open · [`04_DECISION_REGISTER.md`](docs/04_DECISION_REGISTER.md) |
 | **Open decisions** | D-021 (estimation, blocks M3) · D-024 (objective, blocks M6) |
 
@@ -32,6 +33,13 @@ M0 and M1 are complete. M1 delivered the founding vertical slice with all 16 tic
 | **0.25 (Moderate)** | 78.11 s [77.5, 78.7] | 80.89 s [80.4, 81.4] | 64.44 s [64.0, 64.9] | **47.04 s [46.8, 47.3]** (-39.8%) |
 | **0.35 (Heavy)** | 94.57 s [93.8, 95.4] | 96.11 s [95.3, 97.0] | 76.71 s [76.0, 77.4] | **63.91 s [63.4, 64.4]** (-32.4%) |
 | **0.45 (Near-capacity)** | 120.42 s [119.1, 121.8] | 116.32 s [115.1, 117.5] | 94.52 s [93.4, 95.6] | **80.32 s [79.4, 81.2]** (-33.3%) |
+
+### ▸ 2D Replay with Research Overlays
+
+![M2 Congested Run 2D Replay](research/M2_congested_run.gif)
+
+*Animation: Decoupled 2D replay rendered from simulation trace files without SUMO. Displays active signal heads, speed-colored vehicle markers, and real-time HUD telemetry under near-capacity traffic.*
+
 
 ---
 

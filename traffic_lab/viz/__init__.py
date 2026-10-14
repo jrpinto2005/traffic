@@ -1,5 +1,6 @@
 """Visualization package for traffic_lab."""
 
+from traffic_lab.viz.renderer import RenderConfig, ReplayRenderer
 from traffic_lab.viz.trace import (
     TRACE_FORMAT_VERSION,
     StepFrame,
@@ -11,6 +12,8 @@ from traffic_lab.viz.trace import (
 
 __all__ = [
     "TRACE_FORMAT_VERSION",
+    "RenderConfig",
+    "ReplayRenderer",
     "StepFrame",
     "TraceHeader",
     "TraceReader",

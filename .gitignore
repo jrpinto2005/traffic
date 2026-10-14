@@ -13,3 +13,4 @@ spikes/**/out/
 .claude/
 research/m1_experiment/
 research/m1_dt_experiment/
+research/m2_replay_experiment/
