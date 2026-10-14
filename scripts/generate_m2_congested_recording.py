@@ -7,20 +7,18 @@ an animated GIF to research/M2_congested_run.gif.
 
 from __future__ import annotations
 
-import functools
 import shutil
 from pathlib import Path
 
 from tests.experiments.support import in_fresh_process
 from tests.generated_scenario import (
-    DEMAND_PERIOD_S,
     FOUR_WAY,
     build_intersection,
     one_flow_per_movement,
 )
 from traffic_lab.experiments.config import RunConfig
 from traffic_lab.experiments.runner import RunSpec, run_one
-from traffic_lab.experiments.spec import make_webster_controller
+from traffic_lab.experiments.spec import make_max_pressure_controller
 from traffic_lab.viz.renderer import RenderConfig, ReplayRenderer
 from traffic_lab.viz.trace import TraceReader
 
@@ -34,16 +32,16 @@ def main() -> None:
     print("Building intersection scenario...")
     built = build_intersection(FOUR_WAY, exp_dir / "scenario")
     routes_file = one_flow_per_movement(
-        built, exp_dir / "demand.rou.xml", end_s=60.0, period_s=DEMAND_PERIOD_S
+        built, exp_dir / "demand.rou.xml", end_s=80.0, period_s=28.0
     )
 
     out_run = exp_dir / "congested_run"
     config = RunConfig(
         name="m2_congested_run",
         master_seed=42,
-        warmup_s=10.0,
-        measurement_s=40.0,
-        cooldown_s=10.0,
+        warmup_s=5.0,
+        measurement_s=70.0,
+        cooldown_s=5.0,
         record_trace=True,
         trace_compressed=True,
     )
@@ -52,7 +50,7 @@ def main() -> None:
         net=built.net,
         routes=routes_file,
         network=built.network,
-        controller_factory=functools.partial(make_webster_controller, demand_level=0.45),
+        controller_factory=make_max_pressure_controller,
         config=config,
         seed_index=0,
         output_dir=out_run,

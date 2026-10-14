@@ -176,9 +176,9 @@ class ReplayRenderer:
         )
 
     def _draw_signals(self, ax: Axes, frame: StepFrame) -> None:
-        """Draw active signal heads for each approach."""
+        """Draw colored stop lines and realistic 3-aspect roadside signal heads."""
         cx, cy = self.center_xy
-        offset = 9.0  # stop line distance from center
+        road_half_width = 7.0
         signals = frame.signals
 
         active_phase = 0
@@ -187,62 +187,126 @@ class ReplayRenderer:
             active_phase = signals[0].get("active_phase", 0)
             in_transition = signals[0].get("in_transition", False)
 
-        # In 4-phase program: Phase 0/1 are East-West, Phase 2/3 are North-South
-        ew_color = (
-            "#2ecc71"
-            if active_phase in (0, 1) and not in_transition
-            else ("#f39c12" if in_transition and active_phase in (0, 1) else "#e74c3c")
+        # In 4-phase program: Phase 0/1 are North-South, Phase 2/3 are East-West
+        is_ns = active_phase in (0, 1)
+        if in_transition:
+            ns_state = "yellow" if is_ns else "red"
+            ew_state = "red" if is_ns else "yellow"
+        else:
+            ns_state = "green" if is_ns else "red"
+            ew_state = "red" if is_ns else "green"
+
+        color_map = {
+            "green": "#2ecc71",
+            "yellow": "#f39c12",
+            "red": "#e74c3c",
+        }
+        ns_color = color_map[ns_state]
+        ew_color = color_map[ew_state]
+
+        # Inbound stop lines at the intersection entrance
+        # North approach inbound (moving south)
+        ax.plot(
+            [cx - road_half_width, cx],
+            [cy + road_half_width, cy + road_half_width],
+            color=ns_color,
+            linewidth=3.5,
+            zorder=4,
         )
-        ns_color = (
-            "#2ecc71"
-            if active_phase in (2, 3) and not in_transition
-            else ("#f39c12" if in_transition and active_phase in (2, 3) else "#e74c3c")
+        # South approach inbound (moving north)
+        ax.plot(
+            [cx, cx + road_half_width],
+            [cy - road_half_width, cy - road_half_width],
+            color=ns_color,
+            linewidth=3.5,
+            zorder=4,
+        )
+        # West approach inbound (moving east)
+        ax.plot(
+            [cx - road_half_width, cx - road_half_width],
+            [cy - road_half_width, cy],
+            color=ew_color,
+            linewidth=3.5,
+            zorder=4,
+        )
+        # East approach inbound (moving west)
+        ax.plot(
+            [cx + road_half_width, cx + road_half_width],
+            [cy, cy + road_half_width],
+            color=ew_color,
+            linewidth=3.5,
+            zorder=4,
         )
 
-        # West approach stop-line head
-        ax.plot(
-            cx - offset,
-            cy - 3.5,
-            marker="o",
-            markersize=9,
-            color=ew_color,
-            markeredgecolor="#ffffff",
-            markeredgewidth=1.2,
-            zorder=6,
+        # 3-aspect signal heads mounted on curb corners outside the roadway
+        # Northbound / Southbound signal heads (vertical)
+        self._draw_signal_head(
+            ax,
+            cx - road_half_width - 3.5,
+            cy + road_half_width + 5.5,
+            ns_state,
+            orientation="vertical",
         )
-        # East approach stop-line head
-        ax.plot(
-            cx + offset,
-            cy + 3.5,
-            marker="o",
-            markersize=9,
-            color=ew_color,
-            markeredgecolor="#ffffff",
-            markeredgewidth=1.2,
-            zorder=6,
+        self._draw_signal_head(
+            ax,
+            cx + road_half_width + 3.5,
+            cy - road_half_width - 5.5,
+            ns_state,
+            orientation="vertical",
         )
-        # South approach stop-line head
-        ax.plot(
-            cx + 3.5,
-            cy - offset,
-            marker="o",
-            markersize=9,
-            color=ns_color,
-            markeredgecolor="#ffffff",
-            markeredgewidth=1.2,
-            zorder=6,
+        # Eastbound / Westbound signal heads (horizontal)
+        self._draw_signal_head(
+            ax,
+            cx - road_half_width - 5.5,
+            cy - road_half_width - 3.5,
+            ew_state,
+            orientation="horizontal",
         )
-        # North approach stop-line head
-        ax.plot(
-            cx - 3.5,
-            cy + offset,
-            marker="o",
-            markersize=9,
-            color=ns_color,
-            markeredgecolor="#ffffff",
-            markeredgewidth=1.2,
-            zorder=6,
+        self._draw_signal_head(
+            ax,
+            cx + road_half_width + 5.5,
+            cy + road_half_width + 3.5,
+            ew_state,
+            orientation="horizontal",
         )
+
+    def _draw_signal_head(
+        self, ax: Axes, x: float, y: float, state: str, orientation: str = "vertical"
+    ) -> None:
+        """Draw a 3-aspect traffic signal head with housing and illuminated active lens."""
+        w, h = (3.8, 9.5) if orientation == "vertical" else (9.5, 3.8)
+        housing = patches.Rectangle(
+            (x - w / 2, y - h / 2),
+            w,
+            h,
+            facecolor="#121216",
+            edgecolor="#555565",
+            linewidth=1.2,
+            zorder=8,
+        )
+        ax.add_patch(housing)
+
+        red_c = "#e74c3c" if state == "red" else "#351414"
+        yel_c = "#f39c12" if state == "yellow" else "#352e14"
+        grn_c = "#2ecc71" if state == "green" else "#143514"
+
+        offset = 2.8
+        if orientation == "vertical":
+            lenses = [(x, y + offset, red_c), (x, y, yel_c), (x, y - offset, grn_c)]
+        else:
+            lenses = [(x - offset, y, red_c), (x, y, yel_c), (x + offset, y, grn_c)]
+
+        for lx, ly, col in lenses:
+            ax.plot(
+                lx,
+                ly,
+                marker="o",
+                markersize=4.2,
+                color=col,
+                markeredgecolor="#000000",
+                markeredgewidth=0.5,
+                zorder=9,
+            )
 
     def _draw_queues(self, ax: Axes, frame: StepFrame) -> None:
         """Draw queue accumulation indicators."""
@@ -299,9 +363,14 @@ class ReplayRenderer:
         cx, cy = self.center_xy
         metrics = frame.metrics
         signals = frame.signals
-        phase_str = f"Phase {signals[0].get('active_phase', '-')}" if signals else "Phase -"
-        if signals and signals[0].get("in_transition", False):
-            phase_str += " (TRANSITION)"
+        phase_str = "Phase -"
+        if signals:
+            p = signals[0].get("active_phase", 0)
+            in_t = signals[0].get("in_transition", False)
+            axis = "North-South" if p in (0, 1) else "East-West"
+            turn = "Through/Right" if p in (0, 2) else "Left Turn"
+            state_label = "TRANSITION (Yellow/Red)" if in_t else "GREEN"
+            phase_str = f"Phase {p} [{axis} {turn}] -> {state_label}"
 
         in_net = metrics.get("still_in_network", 0)
         arrived = metrics.get("arrived_at_sink", 0)
@@ -309,6 +378,7 @@ class ReplayRenderer:
             f"SIM TIME: {frame.time_s:5.1f}s | STEP {frame.step:04d}",
             f"SIGNAL  : {phase_str}",
             f"NETWORK : In-Network {in_net:2d} | Arrived {arrived:2d}",
+            "VEHICLES: [■ Cruising >5m/s] [■ Slowing] [■ Stopped <0.1m/s]",
         ]
         hud_text = "\n".join(hud_lines)
 
