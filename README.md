@@ -8,37 +8,31 @@ realistic — with motorcycle-heavy traffic as a first-class concern rather than
 
 ---
 
-## Status: M2 complete · M3 in progress
+## Status: M3 complete · M4 in planning
 
-M0, M1, and M2 are complete. M1 delivered the founding vertical slice with all 16 tickets closed
-([`tickets/M1/README.md`](tickets/M1/README.md)). M2 delivered the trace format and 2D replay renderer
-with research overlays ([`tickets/M2/README.md`](tickets/M2/README.md)).
+M0, M1, M2, and M3 are complete.
+- M1 delivered the founding vertical slice with all 16 tickets closed ([`tickets/M1/README.md`](tickets/M1/README.md)).
+- M2 delivered the trace format and 2D replay renderer ([`tickets/M2/README.md`](tickets/M2/README.md)).
+- M3 delivered the parametric camera model, decay estimator, and sensing-control gap ablation study ([`tickets/M3/README.md`](tickets/M3/README.md)).
 
 | | |
 | --- | --- |
-| **Done** | M0 (prior art, spikes), M1 (single intersection, baselines), M2 (trace format & 2D replay) |
-| **Now** | M3 — imperfect observation and sensing–control gap |
-| **Decisions** | 25 settled · 4 deferred · 1 superseded · 2 open · [`04_DECISION_REGISTER.md`](docs/04_DECISION_REGISTER.md) |
-| **Open decisions** | D-021 (estimation, blocks M3) · D-024 (objective, blocks M6) |
+| **Done** | M0 (prior art, spikes), M1 (single intersection, baselines), M2 (trace format & 2D replay), M3 (sensing-control gap) |
+| **Now** | M4 — motorcycles and sublane modeling |
+| **Decisions** | 26 settled · 4 deferred · 1 superseded · 1 open · [`04_DECISION_REGISTER.md`](docs/04_DECISION_REGISTER.md) |
+| **Open decisions** | D-024 (objective, blocks M6) |
 
-### ▸ Headline result
+### ▸ M3 Sensing-Control Gap Degradation Curves
 
-![Milestone M1 Headline Figure](research/M1_headline_figure.png)
+![Milestone M3 Degradation Curves](research/M3_degradation_curves.png)
 
-*Figure: Mean vehicle delay (s/veh) across four demand levels ($d \in [0.15, 0.25, 0.35, 0.45]$) on 15 paired seeds with 95% BCa confidence intervals. Full report: [`research/M1_baseline_report.md`](research/M1_baseline_report.md).*
+*Figure: Controller performance degradation across detection probability ($P_{det}$), coordinate measurement noise ($\sigma_{xy}$), transmission latency ($\tau$), and sensor placement architectures. Full report: [`research/M3_sensing_gap_report.md`](research/M3_sensing_gap_report.md).*
 
-| Demand Level | Webster fixed-time | Actuated (ours) | SUMO gap-actuated | Max-Pressure |
-| :--- | :---: | :---: | :---: | :---: |
-| **0.15 (Light)** | 50.67 s [50.4, 50.9] | 55.45 s [55.1, 55.8] | 37.24 s [37.1, 37.4] | **22.48 s [22.4, 22.6]** (-55.6%) |
-| **0.25 (Moderate)** | 78.11 s [77.5, 78.7] | 80.89 s [80.4, 81.4] | 64.44 s [64.0, 64.9] | **47.04 s [46.8, 47.3]** (-39.8%) |
-| **0.35 (Heavy)** | 94.57 s [93.8, 95.4] | 96.11 s [95.3, 97.0] | 76.71 s [76.0, 77.4] | **63.91 s [63.4, 64.4]** (-32.4%) |
-| **0.45 (Near-capacity)** | 120.42 s [119.1, 121.8] | 116.32 s [115.1, 117.5] | 94.52 s [93.4, 95.6] | **80.32 s [79.4, 81.2]** (-33.3%) |
+### ▸ M3 Visual Divergence Replay (Ground Truth vs. Camera Detections)
 
-### ▸ 2D Replay with Research Overlays
+![M3 Sensing Divergence Replay](research/M3_sensing_divergence.gif)
 
-![M2 Congested Run 2D Replay](research/M2_congested_run.gif)
-
-*Animation: Decoupled 2D replay rendered from simulation trace files without SUMO. Displays active signal heads, speed-colored vehicle markers, and real-time HUD telemetry under near-capacity traffic.*
+*Animation: Visual divergence overlay showing ground truth vehicle positions (filled squares) vs. noisy, partial camera detections (hollow yellow rings) with live sensing bias telemetry.*
 
 
 ---

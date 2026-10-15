@@ -62,7 +62,7 @@ checked at every milestone health check (`03_ROADMAP.md` §Health checks).
 | [D-018](#d-018) | Warm-up, measurement window, unfinished trips | SETTLED | M1 |
 | [D-019](#d-019) | Deliverable is learning + portfolio | SETTLED | — |
 | [D-020](#d-020) | Action space, constraint layer, periodic decision interval | SETTLED | M1 |
-| [D-021](#d-021) | State estimation approach | OPEN | M3 |
+| [D-021](#d-021) | State estimation approach | SETTLED | M3 |
 | [D-022](#d-022) | Demand, routing, sources, sinks, mid-link attrition | SETTLED | M1 |
 | [D-023](#d-023) | Conflict model and phase schema | SETTLED | M1 |
 | [D-024](#d-024) | Objective function | OPEN | M6 |
@@ -1236,30 +1236,31 @@ primary unit.
 ## 4. Open and deferred decisions, later milestones
 
 <a id="d-021"></a>
-### D-021 — State estimation approach · **OPEN · blocks M3**
+### D-021 — State estimation approach and camera sensor model
 
-Undecided: whether the first estimator is per-lane counting with decay, a recursive filter
-over queue dynamics (Kalman or particle), or a learned model.
+**Status:** SETTLED — ratified for M3 2026-10-13 · **Source:** `01_CRITICAL_REVIEW.md` R-5, `03_ROADMAP.md` M3
 
-**Recommendation:** counting with decay at M3 (axis B, Step 1), deliberately chosen and
-documented as minimal rather than arrived at by default. Filtering at Step 2 only if M3
-shows that estimation error, rather than observation error, is what limits control.
+**Decision.**
+1. **Sensor Model (`CameraSensor`):**
+   - Implements `SensorModel` protocol (`traffic_lab/sensing/model.py`).
+   - Parametric field of view (frustum) defined by position $(x, y)$, viewing angle $\theta$, horizontal aperture $\alpha$, and maximum range $R_{\max}$.
+   - Distance-dependent detection probability: $P_{\text{det}}(d) = P_0 \cdot \max(0, 1 - d / R_{\max})$.
+   - Gaussian coordinate measurement noise $\mathcal{N}(0, \sigma_{xy}^2)$ and velocity noise $\mathcal{N}(0, \sigma_v^2)$, seeded via independent stream `seeds["sensor"]` (D-017).
+   - Sampling latency $\tau \ge 0$: observations arrive with timestamp `received_at_s = observed_at_s + \tau`.
+2. **Estimator (`CountingWithDecayEstimator`):**
+   - Implements `Estimator` protocol (`traffic_lab/estimation/estimator.py`).
+   - Per-lane counting with exponential decay across unobserved intervals:
+     $N_t = N_{\text{obs}} + \lambda (N_{t-1} - N_{\text{obs}})$ where $\lambda = e^{-\Delta t / \tau_{\text{decay}}}$.
+   - For lanes outside sensor coverage (`obs.observed_lanes`), estimates decay smoothly toward zero (or prior historical mean) rather than raising an exception.
+   - Computes queue length uncertainty (`queue_count_std`).
+3. **Mid-link attrition handling:**
+   - For M3, the estimator accepts the attrition bias without oracle correction, measuring real-world degradation caused by unobserved mid-link sink departures.
 
-**Worth flagging:** this layer is where the platform's most distinctive work could live. Most
-of the literature either assumes perfect observation or fixes a detector model; explicitly
-separating estimation and measuring how control degrades through it is uncommon.
+**Rationale.**
+Counting with decay is the minimal honest baseline for Step B1. It avoids speculative Kalman filtering or machine-learning models before measuring whether estimation error or sensor dropout is the primary limiting factor for signal controllers.
 
-**Carried forward from `D-022`.** The owner's demand model creates a structural estimation
-problem for free, and it should shape this decision. Because vehicles can leave mid-link
-(attrition), a counting estimator sees a vehicle enter a link upstream and never arrive
-downstream — and **cannot distinguish "it reached a local destination" from "the downstream
-camera missed it."** Both look identical in the observation stream. A naive counting
-estimator therefore accumulates bias at a rate set by the attrition rate.
-
-Three responses are possible, and choosing among them *is* this decision: give the estimator
-the attrition rate as prior knowledge, have it infer the rate online, or accept the bias and
-measure it. The third is a legitimate M3 baseline. This is a realistic problem that real
-camera-based systems have, and it is more interesting than the noise model.
+**Revisit trigger.**
+M3 ablation experiments prove that estimation error (rather than observation dropout or latency) dominates controller failure.
 
 ---
 

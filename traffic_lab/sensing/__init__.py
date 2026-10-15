@@ -7,7 +7,26 @@ the simulator anything (checked by `tests/control/test_control_import_boundary.p
 
 from __future__ import annotations
 
+from traffic_lab.sensing.camera import CameraConfig, CameraSensor, MultiCameraSensor
+from traffic_lab.sensing.factories import (
+    get_incoming_approach_lanes,
+    make_camera_sensor_4approach,
+    make_camera_sensor_central_omni,
+    make_camera_sensor_partial_2approach,
+    make_oracle_sensor,
+)
 from traffic_lab.sensing.model import SensorModel
 from traffic_lab.sensing.oracle import OracleSensor
 
-__all__ = ["OracleSensor", "SensorModel"]
+__all__ = [
+    "CameraConfig",
+    "CameraSensor",
+    "MultiCameraSensor",
+    "OracleSensor",
+    "SensorModel",
+    "get_incoming_approach_lanes",
+    "make_camera_sensor_4approach",
+    "make_camera_sensor_central_omni",
+    "make_camera_sensor_partial_2approach",
+    "make_oracle_sensor",
+]

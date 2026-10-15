@@ -37,6 +37,7 @@ class RenderConfig:
     show_queues: bool = True
     show_signals: bool = True
     show_metrics: bool = True
+    show_observations: bool = True
     show_vehicle_ids: bool = False
     background_color: str = "#18181c"
     road_color: str = "#2c2c34"
@@ -358,6 +359,24 @@ class ReplayRenderer:
             if cfg.show_vehicle_ids:
                 ax.text(vx + 1.5, vy + 1.5, str(v["id"]), color="#ffffff", fontsize=6, zorder=7)
 
+        # Draw camera detections (if recorded in frame and enabled)
+        if cfg.show_observations and frame.observations:
+            dets = frame.observations.get("detections", [])
+            for d in dets:
+                dx, dy = d["x"], d["y"]
+                # Hollow ring showing camera detection position (displaced by noise)
+                ax.plot(
+                    dx,
+                    dy,
+                    marker="o",
+                    markersize=8.0,
+                    markerfacecolor="none",
+                    markeredgecolor="#f1c40f",
+                    markeredgewidth=1.3,
+                    alpha=0.85,
+                    zorder=6,
+                )
+
     def _draw_hud(self, ax: Axes, frame: StepFrame) -> None:
         """Draw real-time research metrics telemetry HUD."""
         cx, cy = self.center_xy
@@ -378,8 +397,22 @@ class ReplayRenderer:
             f"SIM TIME: {frame.time_s:5.1f}s | STEP {frame.step:04d}",
             f"SIGNAL  : {phase_str}",
             f"NETWORK : In-Network {in_net:2d} | Arrived {arrived:2d}",
-            "VEHICLES: [■ Cruising >5m/s] [■ Slowing] [■ Stopped <0.1m/s]",
         ]
+
+        if frame.estimates:
+            true_q = sum(q.get("queue_count", 0) for q in frame.queues.values())
+            est_lanes = frame.estimates.get("lanes", {})
+            est_q = sum(lane_est.get("queue_count", 0.0) for lane_est in est_lanes.values())
+            bias = est_q - true_q
+            hud_lines.append(
+                f"SENSING : True Q={true_q:2d} | Est Q={est_q:4.1f} (Bias: {bias:+4.1f})"
+            )
+
+        if self.config.show_observations and frame.observations:
+            hud_lines.append("DETECTION: ■ Solid: Ground Truth | ◯ Ring: Camera Detection")
+        else:
+            hud_lines.append("VEHICLES: [■ Cruising >5m/s] [■ Slowing] [■ Stopped <0.1m/s]")
+
         hud_text = "\n".join(hud_lines)
 
         # Place HUD in top-left corner

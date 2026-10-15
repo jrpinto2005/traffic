@@ -13,12 +13,13 @@ place (D-033).
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from traffic_lab.domain.observation import EstimatedState, Observation
 from traffic_lab.domain.state import SignalState
 
 
+@runtime_checkable
 class Estimator(Protocol):
     def update(
         self, obs: Observation, signals: tuple[SignalState, ...], now_s: float

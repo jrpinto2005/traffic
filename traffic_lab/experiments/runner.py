@@ -63,6 +63,7 @@ from traffic_lab.backend.tripinfo import read_trips
 from traffic_lab.control.constraint_layer import ConstraintLayer, ConstraintLayerConfig
 from traffic_lab.control.controller import Controller
 from traffic_lab.domain.network import IntersectionId, Network, PhaseId, SensorId
+from traffic_lab.domain.observation import EstimatedState, Observation
 from traffic_lab.domain.state import SignalStage, TrueState
 from traffic_lab.estimation import Estimator, IdentityEstimator
 from traffic_lab.experiments.config import RunConfig, canonical_hash
@@ -77,6 +78,8 @@ from traffic_lab.viz.trace import (
     TraceHeader,
     TraceWriter,
     extract_network_geometry,
+    serialize_estimated_state,
+    serialize_observation,
 )
 
 #: What every run writes into its `output_dir` (T1.11 Amendment A2).
@@ -119,6 +122,8 @@ class RunSpec:
     routes: Path
     network: Network
     controller_factory: Callable[[Network], Controller] | None = None
+    sensor_factory: Callable[[Network, int], SensorModel] | None = None
+    estimator_factory: Callable[[Network], Estimator] | None = None
     config: RunConfig
     seed_index: int
     transport: TransportName = "libsumo"
@@ -126,6 +131,9 @@ class RunSpec:
     output_dir: Path
     controller_name: str | None = None
     demand_level: float | None = None
+    sensor_name: str | None = None
+    estimator_name: str | None = None
+    tags: dict[str, str | float | int] | None = None
 
     def __post_init__(self) -> None:
         if self.controller_factory is not None:
@@ -352,12 +360,22 @@ def run_one(spec: RunSpec) -> Path:
         try:
             if spec.config.warmup_design == "neutral_snapshot":
                 load_into(backend, snapshot_path)
+            sensor = (
+                spec.sensor_factory(spec.network, seeds["sensor"])
+                if spec.sensor_factory is not None
+                else OracleSensor(ORACLE_SENSOR, spec.network)
+            )
+            estimator = (
+                spec.estimator_factory(spec.network)
+                if spec.estimator_factory is not None
+                else IdentityEstimator(spec.network)
+            )
             last = _step_loop(
                 spec,
                 backend,
                 layer,
-                OracleSensor(ORACLE_SENSOR, spec.network),
-                IdentityEstimator(spec.network),
+                sensor,
+                estimator,
                 controller,
                 accumulator,
                 trace_writer=trace_writer,
@@ -386,6 +404,8 @@ def run_one(spec: RunSpec) -> Path:
     row = {
         "run_id": spec.run_id,
         "controller": controller_name,
+        "sensor": spec.sensor_name or "oracle",
+        "estimator": spec.estimator_name or "identity",
         "dt_s": decision_interval_s,
         "decision_interval_s": decision_interval_s,
         "demand_level": spec.demand_level,
@@ -394,6 +414,8 @@ def run_one(spec: RunSpec) -> Path:
         "wall_clock_s": wall_clock_s,
         "peak_memory_mb": peak_memory_mb,
     }
+    if spec.tags:
+        row.update(spec.tags)
     _write_row(row, out / RESULT_FILE)
 
     counters = last.counters
@@ -515,6 +537,8 @@ def _step_loop(
     next_decision_s = start_s + decisions * decision_interval_s
     state: TrueState | None = None
     end_s = spec.end_s
+    last_obs: Observation | None = None
+    last_est: EstimatedState | None = None
     while state is None or state.time_s < end_s - _TIME_EPS_S:
         backend.step()  # SUMO advances one step
         state = backend.project()  # one batched fetch
@@ -523,21 +547,23 @@ def _step_loop(
         layer.step(now_s)  # EVERY step: timers, yellow, all-red
         accumulator.accumulate(state)  # EVERY step: cheap appends
 
+        if now_s + _TIME_EPS_S >= next_decision_s:  # EVERY Dt
+            last_obs = sensor.observe(state, now_s)
+            own = tuple(layer.signal_state(i) for i in intersections)  # D-033
+            last_est = estimator.update(last_obs, own, now_s)
+            request = controller.decide(last_est, now_s)
+            layer.submit(request, now_s)
+            decisions += 1
+            next_decision_s = decisions * decision_interval_s
+
         if trace_writer is not None:
             trace_writer.write_step(
                 step=round(now_s / spec.step_length_s),
                 time_s=now_s,
                 state=state,
+                observations=serialize_observation(last_obs),
+                estimates=serialize_estimated_state(last_est),
             )
-
-        if now_s + _TIME_EPS_S >= next_decision_s:  # EVERY Dt
-            obs = sensor.observe(state, now_s)
-            own = tuple(layer.signal_state(i) for i in intersections)  # D-033
-            est = estimator.update(obs, own, now_s)
-            request = controller.decide(est, now_s)
-            layer.submit(request, now_s)
-            decisions += 1
-            next_decision_s = decisions * decision_interval_s
 
         _apply_display_changes(backend, layer, network, intersections, shown)
     return state

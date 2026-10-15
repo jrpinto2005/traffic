@@ -8,6 +8,8 @@ from traffic_lab.viz.trace import (
     TraceReader,
     TraceWriter,
     extract_network_geometry,
+    serialize_estimated_state,
+    serialize_observation,
 )
 
 __all__ = [
@@ -19,4 +21,6 @@ __all__ = [
     "TraceReader",
     "TraceWriter",
     "extract_network_geometry",
+    "serialize_estimated_state",
+    "serialize_observation",
 ]

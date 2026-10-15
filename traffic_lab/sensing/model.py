@@ -11,12 +11,13 @@ arm, and there is no path for ground truth to take around the sensor.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from traffic_lab.domain.observation import Observation
 from traffic_lab.domain.state import TrueState
 
 
+@runtime_checkable
 class SensorModel(Protocol):
     def observe(self, state: TrueState, now_s: float) -> Observation:
         """Sample `state`, taken at simulated time `now_s`, into an `Observation`."""

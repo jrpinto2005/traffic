@@ -14,3 +14,5 @@ spikes/**/out/
 research/m1_experiment/
 research/m1_dt_experiment/
 research/m2_replay_experiment/
+research/m3_experiment/
+research/m3_replay_divergence/

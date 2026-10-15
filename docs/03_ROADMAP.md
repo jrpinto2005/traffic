@@ -258,15 +258,15 @@ information; this milestone takes it away and measures what breaks.
 
 **Exit criteria**
 
-- [ ] A figure: **performance degradation vs. sensor quality**, per controller, showing
-      which controllers are robust and which collapse.
-- [ ] A stated answer to the attribution question of `00_RESEARCH_SPECIFICATION.md` §23:
-      for each failure observed, is it control, sensing, or estimation?
-- [ ] A sensor-placement comparison with at least three configurations.
-- [ ] A test that fails if a controller is constructed with `TrueState` in a sensed arm.
-- [ ] The renderer shows ground truth and observations simultaneously, visibly diverging.
-- [ ] A results document stating which controller ranking changes under imperfect sensing —
-      **the headline finding of this milestone, whichever way it goes.**
+- [x] A figure: **performance degradation vs. sensor quality**, per controller, showing
+      which controllers are robust and which collapse (`research/M3_degradation_curves.png`).
+- [x] A stated answer to the attribution question of `00_RESEARCH_SPECIFICATION.md` §23:
+      for each failure observed, is it control, sensing, or estimation? (`research/M3_sensing_gap_report.md` §3).
+- [x] A sensor-placement comparison with at least three configurations (4-approach, central omni, partial 2-approach).
+- [x] A test that fails if a controller is constructed with `TrueState` in a sensed arm (`tests/sensing/test_type_boundary.py`).
+- [x] The renderer shows ground truth and observations simultaneously, visibly diverging (`research/M3_sensing_divergence.gif`).
+- [x] A results document stating which controller ranking changes under imperfect sensing —
+      **the headline finding of this milestone, whichever way it goes** (`research/M3_sensing_gap_report.md` §5).
 
 **Non-goals:** no pixels, no learned estimation, no filtering beyond counting-with-decay.
 

@@ -7,7 +7,22 @@ Depends on `domain` **minus `TrueState`** and nothing else in the project -- lik
 
 from __future__ import annotations
 
+from traffic_lab.estimation.decay import (
+    CountingWithDecayEstimator,
+    DecayEstimatorConfig,
+)
 from traffic_lab.estimation.estimator import Estimator
+from traffic_lab.estimation.factories import (
+    make_decay_estimator,
+    make_identity_estimator,
+)
 from traffic_lab.estimation.identity import IdentityEstimator
 
-__all__ = ["Estimator", "IdentityEstimator"]
+__all__ = [
+    "CountingWithDecayEstimator",
+    "DecayEstimatorConfig",
+    "Estimator",
+    "IdentityEstimator",
+    "make_decay_estimator",
+    "make_identity_estimator",
+]

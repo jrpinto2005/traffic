@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from traffic_lab.domain.network import Network
+from traffic_lab.domain.observation import EstimatedState, Observation
 from traffic_lab.domain.state import TrueState
 
 TRACE_FORMAT_VERSION = "1.0"
@@ -102,6 +103,47 @@ def extract_network_geometry(network: Network) -> dict[str, Any]:
             }
             for lane in network.lanes
         ],
+    }
+
+
+def serialize_observation(obs: Observation | None) -> dict[str, Any] | None:
+    """Serialize an Observation for trace recording."""
+    if obs is None:
+        return None
+    return {
+        "received_at_s": obs.received_at_s,
+        "observed_lanes": sorted(int(lane_id) for lane_id in obs.observed_lanes),
+        "detections": [
+            {
+                "track_id": d.track_id,
+                "x": round(float(d.position_xy[0]), 3),
+                "y": round(float(d.position_xy[1]), 3),
+                "speed_mps": round(float(d.speed_mps), 3),
+                "lane": int(d.lane) if d.lane is not None else None,
+                "stationary_s": d.stationary_s,
+                "distance_to_stop_m": d.distance_to_stop_m,
+            }
+            for d in obs.detections
+        ],
+    }
+
+
+def serialize_estimated_state(est: EstimatedState | None) -> dict[str, Any] | None:
+    """Serialize an EstimatedState for trace recording."""
+    if est is None:
+        return None
+    return {
+        "time_s": est.time_s,
+        "lanes": {
+            str(int(lane_est.lane)): {
+                "queue_count": round(float(lane_est.queue_count), 4),
+                "queue_count_std": round(float(lane_est.queue_count_std), 4),
+                "vehicle_count": round(float(lane_est.vehicle_count), 4),
+                "zone_count": round(float(lane_est.zone_count), 4),
+                "last_observed_s": lane_est.last_observed_s,
+            }
+            for lane_est in est.lanes
+        },
     }
 
 
